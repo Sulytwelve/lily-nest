@@ -2,10 +2,10 @@
 const applyTheme = () => {
     const savedTheme = localStorage.getItem("theme") || "system";
     const isSystemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    
+
     // 核心逻辑：如果是 dark 或者 (system 且系统是 dark)，就加上 .dark
     const shouldBeDark = savedTheme === "dark" || (savedTheme === "system" && isSystemDark);
-    
+
     document.documentElement.classList.toggle("dark", shouldBeDark);
 };
 
@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
         themeBtn.addEventListener("click", () => {
             themeMenu.open ? themeMenu.close() : themeMenu.show();
         });
-        
+
         themeMenu.defaultFocus = 'NONE';
         themeMenu.addEventListener("close-menu", (event) => {
             const menuItem = event.detail.initiator;
@@ -46,4 +46,50 @@ document.addEventListener('DOMContentLoaded', () => {
             if (mode) window.setTheme(mode);
         });
     }
+});
+
+// 健康检查功能
+async function checkHealth() {
+    const statusBg = document.querySelector('.avatar-status-bg');
+    if (!statusBg) return;
+
+    // 设置为加载状态
+    statusBg.className = 'avatar-status-bg loading';
+
+    try {
+        // 请求健康检查接口
+        const response = await fetch('/api/v1/health', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            // 设置超时时间为 5 秒
+            signal: AbortSignal.timeout(5000)
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            // 检查返回的 status 是否为 "ok"
+            if (data.status === 'ok') {
+                statusBg.className = 'avatar-status-bg healthy';
+            } else {
+                statusBg.className = 'avatar-status-bg unhealthy';
+            }
+        } else {
+            // HTTP 状态码不是 200
+            statusBg.className = 'avatar-status-bg unhealthy';
+        }
+    } catch (error) {
+        // 网络错误或超时
+        console.error('Health check failed:', error);
+        statusBg.className = 'avatar-status-bg unhealthy';
+    }
+}
+
+// 页面加载完成后执行健康检查
+document.addEventListener('DOMContentLoaded', () => {
+    checkHealth();
+
+    // 可选：每隔 30 秒重新检查一次
+    setInterval(checkHealth, 30000);
 });

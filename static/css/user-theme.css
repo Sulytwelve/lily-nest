@@ -106,7 +106,70 @@ body {
   object-fit: cover;
   border-radius: 50%;
   border: 4px solid var(--md-sys-color-surface-container);
+  z-index: 2;
+  display: block;
+  box-sizing: border-box;
+}
+
+/* 头像状态背景 - 使用transform居中 */
+.avatar-status-bg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  border-radius: 50%;
+  transition: all 0.3s ease;
+  opacity: 0.6;
   z-index: 1;
+  box-sizing: border-box;
+}
+
+/* 健康状态 - 正常 */
+.avatar-status-bg.healthy {
+  background-color: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  animation: pulse-green 2s infinite;
+}
+
+/* 健康状态 - 异常 */
+.avatar-status-bg.unhealthy {
+  background-color: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  animation: pulse-red 1.5s infinite;
+}
+
+/* 加载中状态 */
+.avatar-status-bg.loading {
+  background-color: #6b7280;
+  opacity: 0.4;
+}
+
+/* 绿色脉冲动画 */
+@keyframes pulse-green {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+/* 红色脉冲动画 */
+@keyframes pulse-red {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
 }
 
 .main-intro {
@@ -188,7 +251,7 @@ body {
     width: 100%;
     max-width: 100%;
     /* 这里设定想要的裁剪高度，比如我的 200px */
-    height: 200px; 
+    height: 200px;
     min-height: auto;
     overflow: hidden; /* 确保超出部分被剪掉 */
   }
@@ -301,7 +364,7 @@ md-list-item md-icon[slot="start"] {
 
 /* 让分割线两头留白 */
 md-divider {
-  margin: 0 24px; 
+  margin: 0 24px;
   --md-divider-color: var(--md-sys-color-outline-variant);
   opacity: 0.5;
 }
