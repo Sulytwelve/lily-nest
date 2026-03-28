@@ -1,0 +1,335 @@
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 72px;
+}
+
+/* 第一层：画布 */
+body {
+  margin: 0;
+  background-color: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  transition: background-color 0.3s ease;
+}
+
+.app-bar {
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background-color: var(--md-sys-color-surface);
+  padding: 16px;
+}
+
+/* 第二层：内容约束层 */
+.main-content {
+  margin: 0 auto;
+  padding: 0 24px;
+  flex-direction: column;
+}
+
+.hero-wrapper {
+  padding: 72px 0 0 0;
+  margin-top: -72px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.theme-selector {
+  width: 100%;
+  max-height: 40px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  box-sizing: border-box;
+}
+
+/* 第三层：Tonal 内容容器 */
+.tonal-container {
+  margin: 0 auto;
+  border-radius: 28px;
+  /* 只靠颜色深浅区分*/
+  background-color: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  display: flex;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.hero-layout {
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.list-layout {
+  width: 100%;
+  max-width: 966px;
+  flex-direction: column;
+}
+
+.left-content {
+  display: flex;
+  flex-direction: column;
+  padding: 56px;
+  gap: 24px;
+}
+
+.right-content {
+  max-width: 430px;
+  min-height: 500px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: right;
+}
+
+/* 头像容器 */
+.avatar-container {
+  position: relative;
+  display: inline-block;
+  width: 96px;
+  height: 96px;
+}
+
+/* 头像图片主体 */
+.avatar-image {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 4px solid var(--md-sys-color-surface-container);
+  z-index: 1;
+}
+
+.main-intro {
+  font-size: 1.25rem;
+  padding: 24px 0;
+  margin: 0 0 40px 0;
+  text-align: left;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* 按钮排布与文字说明 */
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+
+.action-row md-filled-button,
+.action-row md-filled-tonal-button {
+  min-width: 100px;
+  --md-filled-button-container-shape: 16px;
+  --md-filled-tonal-button-container-shape: 16px;
+}
+.secondary-section {
+  margin-top: 16px;
+}
+
+.cover-image {
+  width: 100%;
+  height: 100%;
+  opacity: 0.6;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+}
+
+.cover-overlay {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  border-radius: 16px;
+  padding: 16px 20px;
+  text-align: right;
+  color: var(--md-sys-color-on-surface);
+  z-index: 2;
+}
+
+.cover-title {
+  font-size: 3.5rem;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.cover-subtitle {
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 0.8;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+
+.label-text {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: block;
+}
+
+@media (max-width: 900px) {
+  /* 1. 强制右侧容器宽度占满，并设定固定高度 */
+  .right-content {
+    width: 100%;
+    max-width: 100%;
+    /* 这里设定想要的裁剪高度，比如我的 200px */
+    height: 200px; 
+    min-height: auto;
+    overflow: hidden; /* 确保超出部分被剪掉 */
+  }
+
+  /* 2. 让图片充满容器并自动裁剪 */
+  .cover-image {
+    width: 100%;
+    height: 100%; /* 继承父级的高度 */
+    object-fit: cover; /* 图片顶着宽度充满，高度多余部分裁掉 */
+    object-position: center; /* 裁剪时保留图片中心 */
+  }
+
+  /* 3. 调整 Tonal Container 结构 */
+  .hero-layout {
+    flex-direction: column; /* 确保垂直排列 */
+  }
+
+  /* 4. 优化 Padding (可选) */
+  .left-content {
+    padding: 32px 24px;
+  }
+}
+
+.content-section {
+  width: 100%;
+  max-width: 966px;
+  margin: 0 auto 48px auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.content-section .section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 32px 0 16px 0;
+  width: 100%;
+  padding-left: 0;
+}
+
+.content-section .tonal-container {
+  width: 100%;
+  margin: 0;
+}
+
+.section-header h1 {
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface);
+  margin: 0;
+}
+
+.header-anchor {
+  color: var(--md-sys-color-primary);
+  text-decoration: none;
+  font-size: 1.2rem;
+  opacity: 0;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  transform: translateX(-10px);
+  cursor: pointer;
+}
+
+.section-header:hover .header-anchor {
+  opacity: 0.5;
+  transform: translateX(0);
+}
+
+.header-anchor:hover {
+  opacity: 1 !important;
+}
+
+.project-list {
+  width: 100%;
+  flex-direction: column;
+  background: transparent; /* 去掉默认白底 */
+  padding: 0;
+  border-radius: 16px;
+  overflow: hidden; /* 确保内部点击效果不超出圆角 */
+}
+
+.aboutme-list {
+  flex-direction: column;
+  flex-wrap: wrap;
+  background: transparent;
+  padding: 0;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+/* 调整 List Item 的圆角和间距 */
+md-list-item {
+  --md-list-item-container-shape: 28px;
+  --md-list-item-leading-space: 28px;
+  --md-list-item-trailing-space: 28px;
+
+  /* 项目之间的间距 */
+  /* margin-bottom: 8px; */
+
+  /* 确保颜色跟随主题 */
+  --md-list-item-label-text-color: var(--md-sys-color-on-surface);
+  --md-list-item-supporting-text-color: var(--md-sys-color-on-surface-variant);
+}
+
+/* leading 会自动和多行文字垂直居中 */
+md-list-item md-icon[slot="start"] {
+  color: var(--md-sys-color-primary);
+}
+
+/* 让分割线两头留白 */
+md-divider {
+  margin: 0 24px; 
+  --md-divider-color: var(--md-sys-color-outline-variant);
+  opacity: 0.5;
+}
+
+/* 移除最后一个 item 的潜在干扰 */
+.project-list md-list-item:last-child {
+  margin-bottom: 0;
+}
+
+/* 本地加载字体 */
+@font-face {
+  font-family: "Material Symbols Outlined";
+  font-style: normal;
+  font-weight: 100 700;
+  src: url("/fonts/material-symbols.woff2") format("woff2");
+}
+
+.material-symbols-outlined,
+md-icon {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+}

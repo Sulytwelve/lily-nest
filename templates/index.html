@@ -1,138 +1,152 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>梨窝 - 梨梨的个人网站 | 项目、博客与技术分享</title>
-    <meta name="description" content="梨窝是梨梨的个人网站：项目展示、博客与技术分享。这里收录工具箱、作品链接与更新动态。">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lily Nest example - 梨窝</title>
 
-    <link rel="stylesheet" href="/css/MD3.css">
-    <!-- <link rel="stylesheet" href="/css/tailwind.css"> -->
-    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
-    <script type="module" src="/js/index.js"></script>
-    
-    <link rel="preload" as="image" href="{{bg}}">
-
-</head>
-<body class="font-sans">
-
-    <!-- 首屏 (Hero Section) -->
-    <section id="top" class="relative min-h-screen flex flex-col items-center justify-center p-6">
-        <main id="top_card" class="w-full max-w-5xl bg-[var(--m3-card-bg)] rounded-[32px] flex flex-col md:flex-row overflow-hidden min-h-[520px] shadow-sm border border-[var(--m3-primary-container)] animate-entry relative">
-            
-            <!-- 主题切换按钮 -->
-            <div class="absolute top-6 right-6 z-50">
-                <button id="theme_btn" class="w-10 h-10 rounded-full flex items-center justify-center text-[var(--m3-on-surface)] hover:bg-[var(--m3-primary-container)] transition-colors">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M16.95 16.95l.707.707M7.05 7.05l.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-                </button>
-                <div id="theme_menu" class="absolute right-0 mt-2 w-40 bg-[var(--m3-surface-container)] rounded-2xl shadow-xl border border-[var(--m3-outline)]/20 p-2 overflow-hidden">
-                    <button data-mode="light" class="theme-opt w-full text-left px-4 py-3 rounded-xl text-sm hover:bg-[var(--m3-primary-container)] flex items-center gap-3">
-                        <span class="dot w-2 h-2 rounded-full border border-current"></span> 浅色模式
-                    </button>
-                    <button data-mode="dark" class="theme-opt w-full text-left px-4 py-3 rounded-xl text-sm hover:bg-[var(--m3-primary-container)] flex items-center gap-3">
-                        <span class="dot w-2 h-2 rounded-full border border-current"></span> 深色模式
-                    </button>
-                    <button data-mode="system" class="theme-opt w-full text-left px-4 py-3 rounded-xl text-sm hover:bg-[var(--m3-primary-container)] flex items-center gap-3">
-                        <span class="dot w-2 h-2 rounded-full border border-current"></span> 跟随系统
-                    </button>
-                </div>
-            </div>
-
-            <!-- 左侧内容 -->
-            <div class="flex-1 p-10 md:p-14 flex flex-col relative z-10">
-                <div class="mb-8 relative inline-block w-24 h-24">
-                    <div id="avatarStatusBg" class="absolute -inset-1.5 rounded-full transition-all duration-500 opacity-60"></div>
-                    <img src="{{avatar}}" alt="Avatar" class="relative w-full h-full rounded-full object-cover border-4 border-[var(--m3-card-bg)] z-10 shadow-sm" onerror="this.src='https://api.dicebear.com/7.x/notionists/svg?seed=Suly'">
-                </div>
-
-                <p class="text-lg md:text-xl font-medium text-[var(--m3-on-surface)]/80 leading-relaxed mb-8 whitespace-pre-line tracking-tight">
-                    {{intro}}
-                </p>
-
-                <div class="flex flex-wrap gap-3 mb-10">
-                    <a href="#top" class="m3-btn px-6 py-3 rounded-2xl bg-[var(--m3-primary)] text-[var(--m3-on-primary)] text-sm font-bold shadow-sm flex items-center justify-center min-w-[100px]">首页</a>
-                    <a href="https://note.sulyhub.cn/" class="m3-btn px-6 py-3 rounded-2xl bg-[var(--m3-primary-container)] text-[var(--m3-on-primary-container)] text-sm font-bold flex items-center justify-center min-w-[100px]">博客</a>
-                    <a href="#projects" id="btn_projects" class="m3-btn px-6 py-3 rounded-2xl bg-[var(--m3-primary-container)] text-[var(--m3-on-primary-container)] text-sm font-bold flex items-center justify-center min-w-[100px]">项目</a>
-                    <a href="#about" id="btn_about" class="m3-btn px-6 py-3 rounded-2xl bg-[var(--m3-primary-container)] text-[var(--m3-on-primary-container)] text-sm font-bold flex items-center justify-center min-w-[100px]">关于我</a>
-                </div>
-
-                <div class="mt-auto pt-6">
-                    <h3 class="text-xs font-bold text-[var(--m3-outline)] tracking-[0.2em] uppercase mb-4">Team Members</h3>
-                    <div class="flex flex-wrap gap-2.5">
-                        {{members_html}}
-                    </div>
-                </div>
-            </div>
-
-            <!-- 右侧封面 (优化：去染色遮罩，仅使用透明度) -->
-            <div class="w-full md:w-[42%] relative overflow-hidden flex-shrink-0 min-h-[300px] md:min-h-full">
-                <img src="{{bg}}" alt="Cover"width="1182" height="886" loading="eager" fetchpriority="high" decoding="async" class="absolute inset-0 w-full h-full object-cover opacity-60 transition-opacity duration-700" onerror="this.src='https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800'">
-                <div class="absolute bottom-10 left-10 right-10 z-10 text-right">
-                    <h1 class="text-5xl md:text-6xl font-black text-[var(--m3-on-surface)] tracking-tighter drop-shadow-sm">{{title}}</h1>
-                    <p class="mt-2 text-[var(--m3-on-surface)]/60 font-mono text-xs opacity-70 tracking-widest">{{ver}}</p>
-                </div>
-            </div>
-        </main>
-        <div class="absolute bottom-6 flex flex-col items-center text-[var(--m3-outline)] animate-bounce">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-        </div>
-    </section>
-
-    <!-- 项目预览区域 -->
-    <section id="projects" class="max-w-5xl mx-auto px-6 py-12">
-        <div class="bg-[var(--m3-surface-container)] rounded-[32px] p-8 md:p-12 shadow-sm border border-[var(--m3-primary-container)] reveal">
-            <div class="flex items-center gap-4 mb-10">
-                <div class="w-12 h-12 rounded-2xl bg-[var(--m3-primary-container)] flex items-center justify-center text-[var(--m3-on-primary-container)]">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                </div>
-                <h2 class="text-3xl font-bold text-[var(--m3-on-surface)]">项目预览</h2>
-            </div>
-
-            <div class="grid grid-cols-1 gap-4">
-                {{projects_html}}
-                
-                <!-- 更多项目占位符条目 -->
-                <div class="m3-item-card placeholder p-6 flex flex-col md:flex-row items-start md:items-center gap-6">
-                    <div class="w-14 h-14 rounded-2xl bg-[var(--m3-surface-container)] flex-shrink-0 flex items-center justify-center text-[var(--m3-outline)]">
-                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
-                    </div>
-                    <div class="flex-1">
-                        <h3 class="text-xl font-bold text-[var(--m3-on-surface)] mb-1">更多项目正在路上</h3>
-                        <p class="text-[var(--m3-on-surface-variant)] text-sm">项目列表将从后端配置文件动态加载，敬请期待。</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- 关于我区域 (条目化布局) -->
-    <section id="about" class="max-w-5xl mx-auto px-6 py-12 mb-24">
-      <div class="bg-[var(--m3-surface-container)] rounded-[32px] p-8 md:p-12 shadow-sm border border-[var(--m3-primary-container)] reveal">
-        <div class="flex items-center gap-4 mb-10">
-            <div class="w-12 h-12 rounded-2xl bg-[var(--m3-primary)] flex items-center justify-center text-white shadow-lg">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
-                </svg>
-            </div>
-            <h2 class="text-3xl font-bold text-[var(--m3-on-surface)]">关于我</h2>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {{about_items_html}}
-            
-            <div class="bg-[var(--m3-surface-container-low)] rounded-[28px] p-6 border-2 border-dashed border-[var(--m3-outline-variant)] flex flex-col items-center justify-center text-center opacity-60">
-                <div class="w-10 h-10 mb-3 text-[var(--m3-outline)]">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
-                </div>
-                <p class="text-[var(--m3-on-surface-variant)] text-sm font-medium">更多精彩内容<br>持续更新中</p>
-            </div>
-        </div>
-      </div>
-    </section>
+    <link
+      rel="preload"
+      href="/fonts/material-symbols.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
 
     <script>
-        window.__NEXUS_PROFILE__ = {{p_json}};
-        // 这里原本放的是/js/index.js的内容，我把它分离了;
+      (function () {
+        const t = localStorage.getItem("theme") || "system";
+        if (
+          t === "dark" ||
+          (t === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches)
+        ) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
     </script>
-</body>
+
+    <script src="/js/user.js" defer></script>
+    <link rel="stylesheet" href="/css/md-theme.css" />
+    <link rel="stylesheet" href="/css/user-theme.css" />
+    <script type="module" src="/js/MaterialWeb.js"></script>
+  </head>
+  <body>
+    <header class="app-bar">
+      <div class="app-bar-content">
+        <!-- 左侧区域（预留） -->
+        <section class="start">
+          <!-- 可以放 logo 或菜单按钮 -->
+        </section>
+
+        <!-- 右侧区域 -->
+        <section class="end">
+          <div class="theme-selector">
+            <md-text-button id="theme-btn">
+              <md-icon>palette</md-icon>
+            </md-text-button>
+
+            <md-menu anchor="theme-btn" id="theme-menu">
+              <md-menu-item data-mode="light">
+                <div slot="headline">浅色</div>
+              </md-menu-item>
+              <md-menu-item data-mode="dark">
+                <div slot="headline">深色</div>
+              </md-menu-item>
+              <md-menu-item data-mode="system">
+                <div slot="headline">系统</div>
+              </md-menu-item>
+            </md-menu>
+          </div>
+        </section>
+      </div>
+    </header>
+    <main class="main-content">
+      <div id="home" class="hero-wrapper">
+        <div class="tonal-container hero-layout">
+          <div class="left-content">
+            <section class="primary-section">
+              <div class="avatar-container">
+                <img src="{{avatar}}" alt="Avatar" class="avatar-image" />
+              </div>
+              <div class="main-intro">{{intro}}</div>
+              <nav class="action-row">
+                <md-filled-button href="#home">首页</md-filled-button>
+                <md-filled-tonal-button href="https://example.com"
+                  >博客</md-filled-tonal-button
+                >
+                <md-filled-tonal-button href="#projects"
+                  >项目</md-filled-tonal-button
+                >
+                <md-filled-tonal-button href="#about"
+                  >关于</md-filled-tonal-button
+                >
+              </nav>
+            </section>
+
+            <section class="secondary-section">
+              <span class="label-text">TEAM MEMBERS</span>
+              <div class="action-row">{{members_html}}</div>
+            </section>
+          </div>
+
+          <div class="right-content">
+            <img src="{{bg}}" alt="Hero illustration" class="cover-image" />
+            <div class="cover-overlay">
+              <h1 class="cover-title">{{title}}</h1>
+              <p class="cover-subtitle">{{ver}}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 项目概览 -->
+      <section class="content-section">
+        <div class="section-header">
+          <md-icon>folder</md-icon>
+          <h1 id="projects">项目概览</h1>
+          <a
+            class="header-anchor"
+            href="#projects"
+            aria-label="Link to Projects"
+            >#</a
+          >
+        </div>
+        <div class="tonal-container list-layout">
+          <md-list class="project-list">
+            {{projects_html}}
+
+            <md-divider></md-divider>
+
+            <md-list-item>
+              <md-icon slot="start">add</md-icon>
+              <div slot="headline">更多项目正在路上</div>
+              <div slot="supporting-text">
+                项目列表将从后端配置文件动态加载，敬请期待。
+              </div>
+            </md-list-item>
+          </md-list>
+        </div>
+      </section>
+      <!-- 关于我 -->
+      <section class="content-section">
+        <div class="section-header">
+          <md-icon>person</md-icon>
+          <h1 id="about">关于我</h1>
+          <a class="header-anchor" href="#about" aria-label="Link to About"
+            >#</a
+          >
+        </div>
+        <div class="tonal-container list-layout">
+          <md-list class="aboutme-list">
+            {{about_items_html}}
+            <md-list-item href="mailto:example@mail.com" type="link">
+              <md-icon slot="start">mail</md-icon>
+              <div slot="headline">联系我</div>
+              <div slot="supporting-text">咕噜咕噜邮箱</div>
+            </md-list-item>
+          </md-list>
+        </div>
+      </section>
+    </main>
+  </body>
 </html>

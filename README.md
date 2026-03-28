@@ -14,7 +14,7 @@
 - Tokio 异步运行时
 - Serde/TOML 配置
 - Tower HTTP 静态资源服务
-- 前端：Tailwind CSS（CDN）、自定义 Material 3 风格 CSS
+- 前端：原生 Material Design、@material/web 组件、本地 Material 3 主题 CSS、Google Material Symbols 字体
 
 ## 主要功能
 - 首页动态渲染（项目、团队成员、关于我）
@@ -28,25 +28,29 @@
 ```
 lily-nest/
 ├── Cargo.toml
-├── config.toml         # 站点基础配置
-├── projects.toml       # 项目列表配置
-├── src/                # Rust 源码
-│   ├── app.rs          # 应用入口与页面渲染
-│   ├── config.rs       # 配置加载
-│   ├── main.rs         # 启动入口
-│   ├── model.rs        # 数据结构
-│   └── routes/         # 路由
-│       ├── api.rs      # API 路由
-│       └── mod.rs
-├── static/             # 静态资源
-│   ├── css/MD3.css     # Material 3 风格 CSS
-│   ├── js/index.js     # Index.html所需的 JS
-│   └── images/         # 图片资源
-├── templates/
-│   └── index.html      # 首页模板
+├── config.toml               # 站点基础配置
+├── projects.toml             # 项目列表配置
 ├── certs/
-│   └── example.com.pem # SSL证书
-│   └── example.com.key # SSL密钥
+│   └── example.com.pem       # SSL证书
+│   └── example.com.key       # SSL密钥
+├── src/                      # Rust 源码
+│   ├── app.rs                # 应用入口与页面渲染
+│   ├── config.rs             # 配置加载
+│   ├── main.rs               # 启动入口
+│   ├── model.rs              # 数据结构
+│   └── routes/               # 路由
+│       ├── api.rs            # API 路由
+│       └── mod.rs            # 声明mod
+├── static/                   # 静态资源
+│   ├── css/                  # CSS
+│   │   ├── user-theme.css    # 自定义页面布局 CSS
+│   │   └── md-theme.css      # Material 主题色值
+│   ├── js/                   # JavaScript
+│   │   ├── user.js           # 自定义页面布局 CSS
+│   │   └── MaterialWeb.js    # Material Web Components 使用 rollup构建的静态本地JS @material/web
+│   └── images/               # 图片资源
+├── templates/                # 模板目录
+│   └── index.html            # 首页模板
 └── ...
 ```
 
@@ -68,6 +72,7 @@ lily-nest/
 ## 亮点与注意事项
 - 支持热加载（debug模式下每次请求自动渲染最新页面）
 - 生产环境建议用 Nginx 代理静态资源
+- 前端资源基于 Google Material Design 规范，本地使用 `@material/web` 组件库并引入 Google Material Symbols 字体
 - 仅供个人学习/展示用途，欢迎二次开发
 
 ## License

@@ -27,12 +27,16 @@ pub fn build_app() -> Router {
         .route("/index.html", get(|| async { Redirect::permanent("/") }))
         .nest("/api/v1", api_routes)
         .route_service("/robots.txt", ServeFile::new("./static/robots.txt"))
-        .route_service("/BingSiteAuth.xml", ServeFile::new("./static/BingSiteAuth.xml"))
+        .route_service(
+            "/BingSiteAuth.xml",
+            ServeFile::new("./static/BingSiteAuth.xml"),
+        )
         .route_service("/sitemap.xml", ServeFile::new("./static/sitemap.xml"))
         .route_service("/favicon.ico", ServeFile::new("./static/favicon.ico"))
         .nest_service("/images", ServeDir::new("./static/images"))
         .nest_service("/css", ServeDir::new("./static/css"))
         .nest_service("/js", ServeDir::new("./static/js"))
+        .nest_service("/fonts", ServeDir::new("./static/fonts"))
 }
 
 fn render_index() -> String {
@@ -44,51 +48,67 @@ fn render_index() -> String {
         "<!doctype html><html><body><h1>templates/index.html not found</h1></body></html>"
             .to_string()
     });
-    // 组装 members_html
+    // 1. 组装成员
     let members_html = profile_data
         .team_members
         .iter()
-        .map(|m| format!(r#"<span class="m3-chip">{}</span>"#, html_escape(m)))
+        .map(|m| {
+            format!(
+                r#"<md-text-button>{}</md-text-button>"#,
+                html_escape(m)
+            )
+        })
         .collect::<String>();
 
-    // 2. 组装项目预览 HTML
-    let projects_html = projects_data.items.iter().map(|proj| {
-        format!(
-            r#"
-            <a href="{url}" target="_blank" class="m3-item-card p-6 flex flex-col md:flex-row items-start md:items-center gap-6 decoration-none block transition-all hover:brightness-95">
-                <div class="w-14 h-14 rounded-2xl bg-[var(--m3-primary-container)] flex-shrink-0 flex items-center justify-center text-[var(--m3-on-primary-container)]">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
-                </div>
-                <div class="flex-1">
-                    <h3 class="text-xl font-bold text-[var(--m3-on-surface)] mb-1">{name}</h3>
-                    <p class="text-[var(--m3-on-surface-variant)] text-sm">{desc}</p>
-                </div>
-            </a>
-            "#,
-            url = html_escape(&proj.url),
-            name = html_escape(&proj.name),
-            desc = html_escape(&proj.desc)
-        )
-    }).collect::<String>();
+    // 2. 组装项目预览
+    let projects_html = projects_data
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, proj)| {
+            // 如果不是第一个元素，在前面加一个分割线
+            let divider = if i > 0 {
+                "<md-divider></md-divider>"
+            } else {
+                ""
+            };
 
-    let about_items_html = about_data.items.iter().map(|item| {
-        format!(
-            r#"
-            <div class="group bg-[var(--m3-surface-container)] rounded-[28px] p-6 shadow-sm border border-[var(--m3-outline-variant)] hover:border-[var(--m3-primary)] hover:shadow-md transition-all duration-300">
-                <div class="w-12 h-12 rounded-xl bg-[var(--m3-primary-container)] mb-4 overflow-hidden flex items-center justify-center">
-                    <img src="{icon}" alt="{title}" class="w-7 h-7 object-contain group-hover:scale-110 transition-transform" />
-                </div>
-                <h3 class="text-xl font-bold text-[var(--m3-on-surface)] mb-2">{title}</h3>
-                <p class="text-[var(--m3-on-surface-variant)] text-sm leading-relaxed">
-                    {content}
-                </p>
-            </div>
-            "#,
-            icon = html_escape(&item.icon_url),
-            title = html_escape(&item.title),
-            content = html_escape(&item.content)
-        )
-    }).collect::<String>();
+            format!(
+                r#"{divider}
+        <md-list-item type="button" href="{url}" target="_blank">
+            <md-icon slot="start">code</md-icon>
+            <div slot="headline">{name}</div>
+            <div slot="supporting-text">{desc}</div>
+            <md-icon slot="end">open_in_new</md-icon>
+        </md-list-item>
+        "#,
+                divider = divider,
+                url = html_escape(&proj.url),
+                name = html_escape(&proj.name),
+                desc = html_escape(&proj.desc)
+            )
+        })
+        .collect::<String>();
+
+    // 3. 关于我
+    let about_items_html = about_data
+        .items
+        .iter()
+        .map(|item| {
+            format!(
+                r#"
+        <md-list-item>
+            <img slot="start" src="{icon}" style="width: 24px; height: 24px;">
+            <div slot="headline">{title}</div>
+            <div slot="supporting-text">{content}</div>
+        </md-list-item>
+        "#,
+                icon = html_escape(&item.icon_url),
+                title = html_escape(&item.title),
+                content = html_escape(&item.content)
+            )
+        })
+        .collect::<String>();
 
     // 注入 JSON
     let profile_data_json = serde_json::to_string(&profile_data).unwrap();
