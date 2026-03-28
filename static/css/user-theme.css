@@ -1,6 +1,5 @@
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 72px;
 }
 
 /* 第一层：画布 */
@@ -16,6 +15,7 @@ body {
 }
 
 .app-bar {
+  position: sticky;
   top: 0;
   left: 0;
   right: 0;
@@ -40,13 +40,12 @@ body {
 }
 
 .hero-wrapper {
-  padding: 72px 0 0 0;
-  margin-top: -72px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   justify-content: center;
   box-sizing: border-box;
+  scroll-margin-top: 72px;
 }
 
 .theme-selector {

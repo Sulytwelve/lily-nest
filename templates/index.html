@@ -42,7 +42,15 @@
               </svg>
             </md-icon-button>
 
-            <md-menu anchor="theme-btn" id="theme-menu">
+            <md-menu
+              anchor="theme-btn"
+              id="theme-menu"
+              menu-corner="start-end"
+              anchor-corner="end-end"
+              default-focus="none"
+              aria-label="theme control"
+              aria-hidden="true"
+            >
               <md-menu-item data-mode="light">
                 <div slot="headline">浅色</div>
               </md-menu-item>
