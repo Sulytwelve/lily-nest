@@ -110,9 +110,6 @@ fn render_index() -> String {
         })
         .collect::<String>();
 
-    // 注入 JSON
-    let profile_data_json = serde_json::to_string(&profile_data).unwrap();
-
     // 替换占位符
     html = html.replace("{{title}}", &html_escape(&profile_data.current_identity));
     html = html.replace("{{avatar}}", &html_escape(&profile_data.avatar_url));
@@ -120,7 +117,6 @@ fn render_index() -> String {
     html = html.replace("{{ver}}", &html_escape(&profile_data.site_version));
     html = html.replace("{{members_html}}", &members_html);
     html = html.replace("{{intro}}", &html_escape(&profile_data.intro));
-    html = html.replace("{{p_json}}", &profile_data_json);
     // 注入项目 HTML
     html = html.replace("{{projects_html}}", &projects_html);
     html = html.replace("{{about_items_html}}", &about_items_html);
