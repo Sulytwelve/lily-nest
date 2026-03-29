@@ -39,6 +39,15 @@ pub fn build_app() -> Router {
         .nest_service("/fonts", ServeDir::new("./static/fonts"))
 }
 
+fn sanitize_url(url: &str) -> &str {
+    let url = url.trim();
+    if url.starts_with("http://") || url.starts_with("https://") {
+        url
+    } else {
+        "#"
+    }
+}
+
 fn render_index() -> String {
     let profile_data = load_profile();
     let projects_data = load_projects();
@@ -90,7 +99,7 @@ fn render_index() -> String {
                   </md-list-item>
                 "#,
                 divider = divider,
-                url = html_escape(&proj.url),
+                url = html_escape(sanitize_url(&proj.url)),
                 name = html_escape(&proj.name),
                 desc = html_escape(&proj.desc)
             )
