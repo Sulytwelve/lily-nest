@@ -5,16 +5,15 @@
 [security]
 # allow_origins = [
 #     "https://example.com",
-#     "https://*.cloudflareinsights.com",
+#     "https://cloudflareinsights.com",
 # ]
 allow_origins = ["*"]
 csp_policy = """
 default-src 'self'; \
-script-src 'self' ; \
-script-src-attr 'none'; \
+script-src 'self'; \
 style-src 'self' 'unsafe-inline'; \
 img-src 'self' data:; \
-connect-src 'self' ; \
+connect-src 'self'; \
 font-src 'self'; \
 object-src 'none'; \
 base-uri 'self'; \

@@ -105,7 +105,7 @@ impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
             allow_origins: vec!["*".into()],
-            csp_policy: "default-src 'self'; script-src 'self'; script-src-attr 'none'; \
+            csp_policy: "default-src 'self'; script-src 'self'; \
                          style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
                          connect-src 'self'; font-src 'self'; object-src 'none'; \
                          base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
