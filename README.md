@@ -8,7 +8,7 @@
 ## 项目简介
 梨窝是一个基于 Rust + Axum 的个人主页/作品集网站，支持项目动态加载、团队成员展示、深浅色主题等功能，界面采用 Material You 风格，支持响应式设计。
 
-当前版本 v0.1.5-beta 已添加静态资源预压缩功能，并强化了安全配置加载与错误日志记录。
+当前版本已添加更明确的资源路由与应用路由定义，进一步强化静态资源服务与安全策略。
 
 ## 技术栈
 - Rust 2024
@@ -32,6 +32,10 @@
 - HTTP 安全头（CSP、HSTS、X-Frame-Options、Permissions-Policy 等）
 - 安全配置加载增强：release 模式缓存 security 配置，debug 模式仍会热加载；非法 origin 会跳过并记录错误日志
 - release 模式强制 HTTPS，无证书直接拒绝启动
+- 应用路由与资源路由已拆分：
+  - App router 提供 `/`、`/index.html` 重定向、`/api/v1/*` 和安全头中间件
+  - 静态资源 router 提供 `/robots.txt`、`/BingSiteAuth.xml`、`/sitemap.xml`、`/favicon.ico`、`/images/*`、`/css/*`、`/js/*`、`/fonts/*`
+  - CSS/JS/Fonts 静态资源支持预压缩 gzip、Brotli、Zstd
 
 ## 项目结构
 ```
@@ -49,6 +53,7 @@ lily-nest/
 │   ├── compressor.rs         # 静态资源预压缩
 │   ├── config.rs             # 配置加载
 │   ├── main.rs               # 启动入口（dev/release 分支）
+│   ├── middlewares.rs        # 中间件与安全配置逻辑
 │   ├── model.rs              # 数据结构
 │   └── routes/
 │       ├── api.rs            # API 路由

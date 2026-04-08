@@ -123,6 +123,7 @@ pub struct AssetsConfig {
     pub assets_dirs: Vec<String>,
     pub target_exts: Vec<String>,
     pub compression_types: Vec<String>,
+    pub zstd_level: i32,
     pub brotli_quality: u32,
     pub gzip_level: u32,
 }
@@ -144,8 +145,9 @@ impl Default for AssetsConfig {
                 "otf".to_string(),
             ],
             compression_types: vec!["br".to_string(), "gz".to_string()],
-            brotli_quality: 5,
-            gzip_level: 6,
+            zstd_level: 3,
+            brotli_quality: 4,
+            gzip_level: 8,
         }
     }
 }

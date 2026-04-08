@@ -9,3 +9,4 @@
 
 /static/**/*.br
 /static/**/*.gz
+/static/**/*.zst

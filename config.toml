@@ -5,9 +5,10 @@
 [assets]
 assets_dirs = ["./static/css", "./static/js", "./static/fonts"]
 target_exts = ["css", "js", "woff", "woff2", "ttf", "otf"]
-compression_types = ["br", "gz"]
-brotli_quality = 5
-gzip_level = 6
+compression_types = ["br"]                                      # ["zst", "br", "gz"]
+zstd_level = 3
+brotli_quality = 11
+gzip_level = 9
 
 [security]
 # allow_origins = [

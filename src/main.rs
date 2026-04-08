@@ -1,6 +1,7 @@
 mod app;
 mod compressor;
 mod config;
+mod middlewares;
 mod model;
 mod routes;
 

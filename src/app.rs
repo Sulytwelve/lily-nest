@@ -1,66 +1,50 @@
 use std::sync::Arc;
 
-use crate::{
-    config::{load_about_items, load_projects, load_security_config, load_site_profile},
-    model::SecurityConfig,
-};
 use axum::{
     Router,
-    extract::{Request, State},
-    http::{HeaderName, HeaderValue, Method, header},
-    middleware::{self, Next},
-    response::{Html, IntoResponse, Redirect, Response},
+    extract::State,
+    middleware,
+    response::{Html, IntoResponse, Redirect},
     routing::get,
 };
 use tokio::sync::RwLock;
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::error;
 
-pub struct AppState {
-    pub html_cache: RwLock<String>,
-    pub security_config: SecurityConfig,
-}
+use crate::{
+    config::{load_about_items, load_projects, load_security_config, load_site_profile},
+    middlewares::{AppState, build_cors_layer, security_headers, static_asset_cache_control},
+};
 
 pub fn build_app() -> Router {
-    let api_routes = crate::routes::api::router();
     let security_config = load_security_config();
     let state = Arc::new(AppState {
         html_cache: RwLock::new(render_index()),
         security_config,
     });
 
-    let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([header::CONTENT_TYPE]);
+    let app_router = build_app_router(state.clone());
+    let static_assets_router = build_static_router();
 
-    let cors = if state
-        .security_config
-        .allow_origins
-        .contains(&"*".to_string())
-    {
-        cors.allow_origin(Any)
-    } else {
-        let origins: Vec<HeaderValue> = state
-            .security_config
-            .allow_origins
-            .iter()
-            .filter_map(|o| match o.parse() {
-                Ok(v) => Some(v),
-                Err(_) => {
-                    error!("[security] 解析失败, 非法的配置: {}", o);
-                    None
-                }
-            })
-            .collect();
-        cors.allow_origin(origins)
-    };
+    app_router.merge(static_assets_router)
+}
+
+fn build_app_router(state: Arc<AppState>) -> Router {
+    let cors = build_cors_layer(&state.security_config);
 
     Router::new()
         .route("/", get(handler_home_page))
         .with_state(state.clone())
         .route("/index.html", get(|| async { Redirect::permanent("/") }))
-        .nest("/api/v1", api_routes)
+        .nest("/api/v1", crate::routes::api::router())
+        .layer(cors)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            security_headers,
+        ))
+}
+
+fn build_static_router() -> Router {
+    Router::new()
         .route_service("/robots.txt", ServeFile::new("./static/robots.txt"))
         .route_service(
             "/BingSiteAuth.xml",
@@ -72,101 +56,25 @@ pub fn build_app() -> Router {
         .nest_service(
             "/css",
             ServeDir::new("./static/css")
+                .precompressed_zstd()
                 .precompressed_br()
                 .precompressed_gzip(),
         )
         .nest_service(
             "/js",
             ServeDir::new("./static/js")
+                .precompressed_zstd()
                 .precompressed_br()
                 .precompressed_gzip(),
         )
         .nest_service(
             "/fonts",
             ServeDir::new("./static/fonts")
+                .precompressed_zstd()
                 .precompressed_br()
                 .precompressed_gzip(),
         )
-        .layer(cors)
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            security_headers,
-        ))
         .layer(middleware::from_fn(static_asset_cache_control))
-}
-
-async fn security_headers(
-    State(state): State<Arc<AppState>>,
-    req: Request,
-    next: Next,
-) -> Response {
-    let mut res = next.run(req).await;
-
-    let config = if cfg!(debug_assertions) {
-        load_security_config()
-    } else {
-        state.security_config.clone()
-    };
-
-    // 用 (HeaderName, String) 而不是 (HeaderName, &'static str)
-    let headers: [(HeaderName, String); 6] = [
-        (header::CONTENT_SECURITY_POLICY, config.csp_policy),
-        (header::X_CONTENT_TYPE_OPTIONS, "nosniff".into()),
-        (
-            header::REFERRER_POLICY,
-            "strict-origin-when-cross-origin".into(),
-        ),
-        (header::X_FRAME_OPTIONS, "DENY".into()),
-        (
-            header::STRICT_TRANSPORT_SECURITY,
-            "max-age=31536000; includeSubDomains".into(),
-        ),
-        (
-            HeaderName::from_static("permissions-policy"),
-            config.permissions_policy,
-        ),
-    ];
-
-    let headers_map = res.headers_mut();
-    for (name, value) in headers {
-        if let Ok(v) = HeaderValue::from_str(&value) {
-            headers_map.insert(name, v);
-        }
-    }
-
-    res
-}
-
-async fn static_asset_cache_control(req: Request, next: Next) -> Response {
-    let path = req.uri().path().to_owned();
-    let mut response = next.run(req).await;
-
-    if !response.status().is_success() {
-        return response;
-    }
-
-    let cache_control = if path.starts_with("/fonts/") {
-        Some("public, max-age=604800")
-    } else if path.starts_with("/css/") || path.starts_with("/js/") || path.starts_with("/images/")
-    {
-        Some("public, max-age=86400")
-    } else if matches!(
-        path.as_str(),
-        "/favicon.ico" | "/robots.txt" | "/sitemap.xml" | "/BingSiteAuth.xml"
-    ) {
-        Some("public, max-age=3600")
-    } else {
-        None
-    };
-
-    if let Some(cache_control) = cache_control {
-        response.headers_mut().insert(
-            axum::http::header::CACHE_CONTROL,
-            HeaderValue::from_static(cache_control),
-        );
-    }
-
-    response
 }
 
 fn sanitize_url(url: &str) -> &str {

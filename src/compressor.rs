@@ -91,28 +91,26 @@ fn process_compression(file_path: &PathBuf, config: &AssetsConfig) {
             output_path.display()
         );
         match comp_type.as_str() {
-            "gz" => compress_gz(&data, &output_path, config.gzip_level),
             "br" => compress_br(&data, &output_path, config.brotli_quality),
+            "gz" => compress_gz(&data, &output_path, config.gzip_level),
+            "zst" => compress_zst(&data, &output_path, config.zstd_level),
             _ => warn!("不支持的压缩类型: {}", comp_type),
         }
     }
 }
 
-// Gzip 压缩
-fn compress_gz(data: &[u8], output_path: &PathBuf, level: u32) {
-    use flate2::{Compression, write::GzEncoder};
-    use std::io::Write;
-
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::new(level));
-
-    if let Err(e) = encoder
-        .write_all(data)
-        .and_then(|_| encoder.finish())
-        .and_then(|c| fs::write(output_path, c))
-    {
-        warn!("Gzip 处理失败 {}: {}", output_path.display(), e);
-    } else {
-        info!("Gzip 成功: {}", output_path.display());
+// Zstandard 压缩
+fn compress_zst(data: &[u8], output_path: &PathBuf, level: i32) {
+    // 使用 zstd 的 stream::encode_all 进行一次性压缩[citation:6]
+    match zstd::stream::encode_all(data, level) {
+        Ok(compressed) => {
+            if let Err(e) = fs::write(output_path, compressed) {
+                warn!("Zstd 写入失败 {}: {}", output_path.display(), e);
+            } else {
+                info!("Zstd 成功: {}", output_path.display());
+            }
+        }
+        Err(e) => warn!("Zstd 压缩失败 {}: {}", output_path.display(), e),
     }
 }
 
@@ -132,6 +130,24 @@ fn compress_br(data: &[u8], output_path: &PathBuf, quality: u32) {
     match result {
         Ok(_) => info!("Brotli 成功: {}", output_path.display()),
         Err(e) => warn!("Brotli 失败 {}: {}", output_path.display(), e),
+    }
+}
+
+// Gzip 压缩
+fn compress_gz(data: &[u8], output_path: &PathBuf, level: u32) {
+    use flate2::{Compression, write::GzEncoder};
+    use std::io::Write;
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::new(level));
+
+    if let Err(e) = encoder
+        .write_all(data)
+        .and_then(|_| encoder.finish())
+        .and_then(|c| fs::write(output_path, c))
+    {
+        warn!("Gzip 处理失败 {}: {}", output_path.display(), e);
+    } else {
+        info!("Gzip 成功: {}", output_path.display());
     }
 }
 
