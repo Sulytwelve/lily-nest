@@ -6,3 +6,6 @@
 /static/sitemap.xml
 /certs/*
 !certs/example*
+
+/static/**/*.br
+/static/**/*.gz

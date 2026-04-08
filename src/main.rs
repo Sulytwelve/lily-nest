@@ -1,11 +1,12 @@
 mod app;
+mod compressor;
 mod config;
 mod model;
 mod routes;
 
 use axum_server::tls_rustls::RustlsConfig;
-use tracing::info;
 use std::net::SocketAddr;
+use tracing::info;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
@@ -17,6 +18,11 @@ async fn main() {
         .with(fmt::layer())
         .with(EnvFilter::new("info"))
         .init();
+
+    // 预压缩资源文件
+    let assets_config = config::load_assets_config();
+    compressor::ensure_precompressed_assets(&assets_config);
+
     // 构建应用（路由、静态资源等）
     let app = app::build_app();
 

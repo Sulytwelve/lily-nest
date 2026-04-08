@@ -2,6 +2,13 @@
 # cert_path = "./certs/example.com.pem"
 # key_path  = "./certs/example.com.key"
 
+[assets]
+assets_dirs = ["./static/css", "./static/js", "./static/fonts"]
+target_exts = ["css", "js", "woff", "woff2", "ttf", "otf"]
+compression_types = ["br", "gz"]
+brotli_quality = 5
+gzip_level = 6
+
 [security]
 # allow_origins = [
 #     "https://example.com",

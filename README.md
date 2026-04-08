@@ -8,7 +8,7 @@
 ## 项目简介
 梨窝是一个基于 Rust + Axum 的个人主页/作品集网站，支持项目动态加载、团队成员展示、深浅色主题等功能，界面采用 Material You 风格，支持响应式设计。
 
-当前版本已更新依赖，并强化了安全配置加载与错误日志记录。
+当前版本 v0.1.5-beta 已添加静态资源预压缩功能，并强化了安全配置加载与错误日志记录。
 
 ## 技术栈
 - Rust 2024
@@ -26,6 +26,7 @@
 - config.toml 中的 [security] 块支持动态 CORS、CSP、Permissions Policy 配置
 - RESTful API（/api/v1/health、/api/v1/home/profile）
 - 静态资源服务（图片、CSS、JS、robots.txt、sitemap.xml 等）
+- 静态资源预压缩（Gzip、Brotli）
 - 深色主题跟随系统（纯 CSS，无 JS 闪烁）
 - HTML 页面缓存（release 模式，5 分钟）
 - HTTP 安全头（CSP、HSTS、X-Frame-Options、Permissions-Policy 等）
@@ -45,6 +46,7 @@ lily-nest/
 │   └── example.com.key       # SSL 私钥
 ├── src/
 │   ├── app.rs                # 应用路由、中间件与页面渲染
+│   ├── compressor.rs         # 静态资源预压缩
 │   ├── config.rs             # 配置加载
 │   ├── main.rs               # 启动入口（dev/release 分支）
 │   ├── model.rs              # 数据结构
@@ -101,6 +103,7 @@ lily-nest/
 ## 亮点与注意事项
 - debug 模式每次请求重新渲染页面，方便开发调试
 - release 模式使用内存缓存，首页渲染结果复用（5 分钟 Cache-Control）
+- 静态资源预压缩：支持 Gzip 和 Brotli 压缩，自动检测文件更新并重新压缩，提高网站性能
 - 深色主题完全由 CSS `@media (prefers-color-scheme: dark)` 驱动，无 JS 依赖，无闪烁
 - 前端资源基于 Material Design 3 规范，使用 `@material/web` 组件库本地构建
 - 项目部署于 Cloudflare，开放 8443（HTTPS）和 8880（HTTP dev）端口

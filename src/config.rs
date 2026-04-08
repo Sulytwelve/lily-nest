@@ -1,4 +1,4 @@
-use crate::model::{AboutList, HomeProfile, ProjectList, SecurityConfig, TlsConfig};
+use crate::model::{AboutList, AssetsConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig};
 use serde::Deserialize;
 use std::fs;
 use tracing::error;
@@ -88,5 +88,23 @@ pub fn load_security_config() -> SecurityConfig {
                 error!("警告: security 配置解析失败 ({}), 使用默认安全策略", e);
             }
             SecurityConfig::default()
+        })
+}
+
+pub fn load_assets_config() -> AssetsConfig {
+    let content = std::fs::read_to_string("config.toml").unwrap_or_default();
+
+    #[derive(Deserialize)]
+    struct Wrapper {
+        assets: AssetsConfig,
+    }
+
+    toml::from_str::<Wrapper>(&content)
+        .map(|w| w.assets)
+        .unwrap_or_else(|e| {
+            if !content.is_empty() {
+                error!("警告: assets 配置解析失败 ({}), 使用默认压缩配置", e);
+            }
+            AssetsConfig::default()
         })
 }

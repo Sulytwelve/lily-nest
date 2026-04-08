@@ -1,3 +1,5 @@
+use std::vec;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -111,6 +113,39 @@ impl Default for SecurityConfig {
                          base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
                 .into(),
             permissions_policy: "camera=(), microphone=(), geolocation=(), payment=()".into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct AssetsConfig {
+    pub assets_dirs: Vec<String>,
+    pub target_exts: Vec<String>,
+    pub compression_types: Vec<String>,
+    pub brotli_quality: u32,
+    pub gzip_level: u32,
+}
+
+impl Default for AssetsConfig {
+    fn default() -> Self {
+        Self {
+            assets_dirs: vec![
+                "./static/css".to_string(),
+                "./static/js".to_string(),
+                "./static/fonts".to_string(),
+            ],
+            target_exts: vec![
+                "css".to_string(),
+                "js".to_string(),
+                "woff".to_string(),
+                "woff2".to_string(),
+                "ttf".to_string(),
+                "otf".to_string(),
+            ],
+            compression_types: vec!["br".to_string(), "gz".to_string()],
+            brotli_quality: 5,
+            gzip_level: 6,
         }
     }
 }

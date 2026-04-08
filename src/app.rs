@@ -69,9 +69,24 @@ pub fn build_app() -> Router {
         .route_service("/sitemap.xml", ServeFile::new("./static/sitemap.xml"))
         .route_service("/favicon.ico", ServeFile::new("./static/favicon.ico"))
         .nest_service("/images", ServeDir::new("./static/images"))
-        .nest_service("/css", ServeDir::new("./static/css"))
-        .nest_service("/js", ServeDir::new("./static/js"))
-        .nest_service("/fonts", ServeDir::new("./static/fonts"))
+        .nest_service(
+            "/css",
+            ServeDir::new("./static/css")
+                .precompressed_br()
+                .precompressed_gzip(),
+        )
+        .nest_service(
+            "/js",
+            ServeDir::new("./static/js")
+                .precompressed_br()
+                .precompressed_gzip(),
+        )
+        .nest_service(
+            "/fonts",
+            ServeDir::new("./static/fonts")
+                .precompressed_br()
+                .precompressed_gzip(),
+        )
         .layer(cors)
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -150,12 +165,6 @@ async fn static_asset_cache_control(req: Request, next: Next) -> Response {
             HeaderValue::from_static(cache_control),
         );
     }
-
-    // Cloudflare 可能需要的 Vary
-    response.headers_mut().insert(
-        axum::http::header::VARY,
-        HeaderValue::from_static("Accept-Encoding"),
-    );
 
     response
 }
