@@ -112,10 +112,16 @@ pub async fn static_asset_cache_control(req: Request, next: Next) -> Response {
     }
 
     // Cloudflare 可能需要的 Vary
-    response.headers_mut().insert(
-        axum::http::header::VARY,
-        HeaderValue::from_static("Accept-Encoding"),
-    );
+    if path.starts_with("/fonts/")
+        || path.starts_with("/css/")
+        || path.starts_with("/js/")
+        || path.starts_with("/images/")
+    {
+        response.headers_mut().insert(
+            axum::http::header::VARY,
+            HeaderValue::from_static("Accept-Encoding"),
+        );
+    }
 
     response
 }
