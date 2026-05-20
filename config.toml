@@ -16,12 +16,17 @@ gzip_level = 9
 #     "https://cloudflareinsights.com",
 # ]
 allow_origins = ["*"]
+admin_password = "admin"
+admin_security_answers = ["default1", "default2", "default3"]
+auth-ext-secq = true
+auth-ext-warp = true
+allowed_locs = ["CN", "US"]
 csp_policy = """
 default-src 'self'; \
 script-src 'self'; \
 style-src 'self' 'unsafe-inline'; \
 img-src 'self' data:; \
-connect-src 'self'; \
+connect-src 'self' https://cloudflare.com https://*.cloudflare.com; \
 font-src 'self'; \
 object-src 'none'; \
 base-uri 'self'; \

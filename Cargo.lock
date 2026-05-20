@@ -514,6 +514,7 @@ dependencies = [
  "axum-server",
  "brotli",
  "flate2",
+ "httpdate",
  "serde",
  "serde_json",
  "tokio",

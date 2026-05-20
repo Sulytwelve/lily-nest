@@ -101,6 +101,13 @@ pub struct SecurityConfig {
     pub allow_origins: Vec<String>,
     pub csp_policy: String,
     pub permissions_policy: String,
+    pub admin_password: Option<String>,
+    pub admin_security_answers: Option<Vec<String>>,
+    #[serde(rename = "auth-ext-secq")]
+    pub auth_ext_secq: Option<bool>,
+    #[serde(rename = "auth-ext-warp")]
+    pub auth_ext_warp: Option<bool>,
+    pub allowed_locs: Option<Vec<String>>,
 }
 
 impl Default for SecurityConfig {
@@ -109,10 +116,15 @@ impl Default for SecurityConfig {
             allow_origins: vec!["*".into()],
             csp_policy: "default-src 'self'; script-src 'self'; \
                          style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
-                         connect-src 'self'; font-src 'self'; object-src 'none'; \
+                         connect-src 'self' https://cloudflare.com https://*.cloudflare.com; font-src 'self'; object-src 'none'; \
                          base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
                 .into(),
             permissions_policy: "camera=(), microphone=(), geolocation=(), payment=()".into(),
+            admin_password: None,
+            admin_security_answers: None,
+            auth_ext_secq: Some(false),
+            auth_ext_warp: Some(false),
+            allowed_locs: Some(vec!["CN".to_string()]),
         }
     }
 }

@@ -1,4 +1,8 @@
 /target
+/MWC
+/.claude
+/CLAUDE.md
+/GEMINI.md
 /static/images/*
 /static/Bing*
 /static/favicon.ico

@@ -12,9 +12,12 @@ use tracing::error;
 
 use crate::{config::load_security_config, model::SecurityConfig};
 
+use std::time::SystemTime;
+
 pub struct AppState {
     pub html_cache: RwLock<String>,
     pub security_config: SecurityConfig,
+    pub started_at: SystemTime,
 }
 
 pub fn build_cors_layer(security_config: &SecurityConfig) -> CorsLayer {
@@ -82,46 +85,3 @@ pub async fn security_headers(
     res
 }
 
-pub async fn static_asset_cache_control(req: Request, next: Next) -> Response {
-    let path = req.uri().path().to_owned();
-    let mut response = next.run(req).await;
-
-    if !response.status().is_success() {
-        return response;
-    }
-
-    let cache_control = if path.starts_with("/fonts/") {
-        Some("public, max-age=604800")
-    } else if path.starts_with("/css/") || path.starts_with("/js/") || path.starts_with("/images/")
-    {
-        Some("public, max-age=86400")
-    } else if matches!(
-        path.as_str(),
-        "/favicon.ico" | "/robots.txt" | "/sitemap.xml" | "/BingSiteAuth.xml"
-    ) {
-        Some("public, max-age=3600")
-    } else {
-        None
-    };
-
-    if let Some(cache_control) = cache_control {
-        response.headers_mut().insert(
-            axum::http::header::CACHE_CONTROL,
-            HeaderValue::from_static(cache_control),
-        );
-    }
-
-    // Cloudflare 可能需要的 Vary
-    if path.starts_with("/fonts/")
-        || path.starts_with("/css/")
-        || path.starts_with("/js/")
-        || path.starts_with("/images/")
-    {
-        response.headers_mut().insert(
-            axum::http::header::VARY,
-            HeaderValue::from_static("Accept-Encoding"),
-        );
-    }
-
-    response
-}

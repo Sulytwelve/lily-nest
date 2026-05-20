@@ -2,3 +2,8 @@
 name = "test 模板"
 desc = "toml test 模板。"
 url = "https://github.com/"
+
+[[items]]
+name = "test 模板"
+desc = "toml test 模板。"
+url = "https://github.com/"
