@@ -41,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const config = await res.json();
                 authExtSecqEnabled = config.auth_ext_secq;
                 authExtCftraceEnabled = config.auth_ext_cftrace;
-                if (config.cftrace_url) {
+                if (config.cftrace_url && config.cftrace_url.trim() !== '') {
                     let url = config.cftrace_url.trim();
                     if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/')) {
                         cftraceUrl = url;
