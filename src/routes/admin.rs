@@ -91,7 +91,7 @@ async fn admin_auth_middleware(
         .get("X-Admin-Question-Index")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<usize>().ok());
-    let cf_trace_raw = headers.get("X-CF-Trace").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let cf_trace_raw = headers.get("X-Admin-Trace").and_then(|v| v.to_str().ok()).unwrap_or("");
     let cf_trace = percent_decode(cf_trace_raw);
 
     let client_ip = headers.get("cf-connecting-ip")

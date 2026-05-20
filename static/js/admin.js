@@ -101,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'X-Admin-Password': encodeURIComponent(currentPassword),
             'X-Admin-Answer': authExtSecqEnabled ? encodeURIComponent(currentAnswer) : '',
             'X-Admin-Question-Index': authExtSecqEnabled ? currentQuestionIndex.toString() : '0',
-            'X-CF-Trace': encodeURIComponent(rawCfTrace),
+            'X-Admin-Trace': encodeURIComponent(rawCfTrace),
             'Content-Type': 'application/json',
             ...options.headers
         };
