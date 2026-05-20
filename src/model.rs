@@ -107,6 +107,8 @@ pub struct SecurityConfig {
     pub auth_ext_secq: Option<bool>,
     #[serde(rename = "auth-ext-warp")]
     pub auth_ext_warp: Option<bool>,
+    #[serde(rename = "auth-ext-cftrace")]
+    pub auth_ext_cftrace: Option<bool>,
     pub allowed_locs: Option<Vec<String>>,
 }
 
@@ -124,6 +126,7 @@ impl Default for SecurityConfig {
             admin_security_answers: None,
             auth_ext_secq: Some(false),
             auth_ext_warp: Some(false),
+            auth_ext_cftrace: Some(false),
             allowed_locs: Some(vec!["CN".to_string()]),
         }
     }

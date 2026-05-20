@@ -20,6 +20,7 @@ admin_password = "admin"
 admin_security_answers = ["default1", "default2", "default3"]
 auth-ext-secq = true
 auth-ext-warp = true
+auth-ext-cftrace = false
 allowed_locs = ["CN", "US"]
 csp_policy = """
 default-src 'self'; \

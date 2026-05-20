@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentFile = '';
     let rawCfTrace = '';
     let authExtSecqEnabled = false;
+    let authExtCftraceEnabled = false;
 
     function updateStatus(msg, isError = false) {
         statusText.innerText = msg;
@@ -38,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (res.ok) {
                 const config = await res.json();
                 authExtSecqEnabled = config.auth_ext_secq;
+                authExtCftraceEnabled = config.auth_ext_cftrace;
                 if (authExtSecqEnabled) {
                     securityQuestionContainer.innerHTML = `
                         <p id="security-question-label" class="md-typescale-body-medium" style="margin-bottom: 8px; color: var(--md-sys-color-primary);"></p>
@@ -79,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function apiFetch(url, options = {}) {
-        if (!rawCfTrace) {
+        if (authExtCftraceEnabled && !rawCfTrace) {
             await fetchTrace();
         }
 
