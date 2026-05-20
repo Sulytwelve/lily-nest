@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let rawCfTrace = '';
     let authExtSecqEnabled = false;
     let authExtCftraceEnabled = false;
+    let cftraceUrl = 'https://cloudflare.com/cdn-cgi/trace';
 
     function updateStatus(msg, isError = false) {
         statusText.innerText = msg;
@@ -40,6 +41,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 const config = await res.json();
                 authExtSecqEnabled = config.auth_ext_secq;
                 authExtCftraceEnabled = config.auth_ext_cftrace;
+                if (config.cftrace_url) {
+                    let url = config.cftrace_url.trim();
+                    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/')) {
+                        cftraceUrl = url;
+                    } else {
+                        if (url === window.location.hostname || url === window.location.host) {
+                            cftraceUrl = '/cdn-cgi/trace';
+                        } else {
+                            cftraceUrl = `https://${url}/cdn-cgi/trace`;
+                        }
+                    }
+                }
                 if (authExtSecqEnabled) {
                     securityQuestionContainer.innerHTML = `
                         <p id="security-question-label" class="md-typescale-body-medium" style="margin-bottom: 8px; color: var(--md-sys-color-primary);"></p>
@@ -71,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function fetchTrace() {
         try {
-            const res = await fetch('https://cloudflare.com/cdn-cgi/trace');
+            const res = await fetch(cftraceUrl);
             if (res.ok) {
                 rawCfTrace = await res.text();
             }

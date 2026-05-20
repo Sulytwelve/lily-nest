@@ -26,6 +26,7 @@ pub struct SaveConfigRequest {
 pub struct AuthConfigResponse {
     pub auth_ext_secq: bool,
     pub auth_ext_cftrace: bool,
+    pub cftrace_url: Option<String>,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -47,6 +48,7 @@ async fn get_auth_config(State(state): State<Arc<AppState>>) -> Json<AuthConfigR
     Json(AuthConfigResponse {
         auth_ext_secq: security_config.auth_ext_secq.unwrap_or(false),
         auth_ext_cftrace: security_config.auth_ext_cftrace.unwrap_or(false),
+        cftrace_url: security_config.cftrace_url.clone(),
     })
 }
 
@@ -108,7 +110,6 @@ async fn admin_auth_middleware(
     let actual_password = security_config.admin_password.clone();
     let actual_answers = security_config.admin_security_answers.clone();
     let auth_ext_secq = security_config.auth_ext_secq.unwrap_or(false);
-    let auth_ext_warp = security_config.auth_ext_warp.unwrap_or(false);
     let auth_ext_cftrace = security_config.auth_ext_cftrace.unwrap_or(false);
     let allowed_locs = security_config.allowed_locs.clone().unwrap_or_else(|| vec!["CN".to_string()]);
 
@@ -142,67 +143,8 @@ async fn admin_auth_middleware(
                 true
             };
 
-            // 2. Verify Direct Cloudflare Headers if enabled
-            let direct_warp_ok = if secq_ok && auth_ext_warp {
-                let cf_ipcountry = headers.get("cf-ipcountry")
-                    .or_else(|| headers.get("CF-IPCountry"))
-                    .and_then(|v| v.to_str().ok());
-
-                let loc_ok = match cf_ipcountry {
-                    Some(l) => {
-                        let ok = allowed_locs.contains(&l.to_string());
-                        if !ok {
-                            failure_reason = Some(format!("Direct CF: location '{}' not allowed (allowed: {:?})", l, allowed_locs));
-                        }
-                        ok
-                    }
-                    None => {
-                        failure_reason = Some("Direct CF: 'cf-ipcountry' header missing".to_string());
-                        false
-                    }
-                };
-
-                let warp_val = headers.get("cf-warp")
-                    .or_else(|| headers.get("cf-client-warp"))
-                    .and_then(|v| v.to_str().ok());
-
-                let warp_ok = if loc_ok {
-                    let is_warp = match warp_val {
-                        Some(v) => v == "on" || v == "true" || v == "1",
-                        None => false,
-                    };
-                    if !is_warp {
-                        failure_reason = Some(format!("Direct CF: WARP is off (header={:?})", warp_val));
-                    }
-                    is_warp
-                } else {
-                    false
-                };
-
-                let gateway_val = headers.get("cf-gateway")
-                    .or_else(|| headers.get("cf-client-gateway"))
-                    .and_then(|v| v.to_str().ok());
-
-                let gateway_ok = if warp_ok {
-                    let is_gateway = match gateway_val {
-                        Some(v) => v == "on" || v == "true" || v == "1",
-                        None => false,
-                    };
-                    if !is_gateway {
-                        failure_reason = Some(format!("Direct CF: Gateway is off (header={:?})", gateway_val));
-                    }
-                    is_gateway
-                } else {
-                    false
-                };
-
-                gateway_ok
-            } else {
-                true
-            };
-
-            // 3. Verify Client Cloudflare Trace if enabled
-            let trace_warp_ok = if secq_ok && direct_warp_ok && auth_ext_cftrace {
+            // 2. Verify Client Cloudflare Trace if enabled
+            let trace_warp_ok = if secq_ok && auth_ext_cftrace {
                 let mut loc = None;
                 let mut warp = None;
                 let mut gateway = None;
@@ -258,7 +200,7 @@ async fn admin_auth_middleware(
                 true
             };
 
-            secq_ok && direct_warp_ok && trace_warp_ok
+            secq_ok && trace_warp_ok
         }
         (Some(_), Some(_)) => {
             failure_reason = Some("Password incorrect".to_string());
@@ -287,12 +229,8 @@ async fn admin_auth_middleware(
         }
     }
 
-    let direct_cf_loc = headers.get("cf-ipcountry")
-        .or_else(|| headers.get("CF-IPCountry"))
-        .and_then(|v| v.to_str().ok());
-
     let final_ip = trace_ip.as_deref().unwrap_or(client_ip);
-    let final_loc = trace_loc.as_deref().or(direct_cf_loc).unwrap_or("Unknown Location");
+    let final_loc = trace_loc.as_deref().unwrap_or("Unknown Location");
     let final_uag = trace_uag.as_deref().unwrap_or(user_agent);
 
     if is_authenticated {

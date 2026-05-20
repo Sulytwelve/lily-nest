@@ -109,6 +109,8 @@ pub struct SecurityConfig {
     pub auth_ext_warp: Option<bool>,
     #[serde(rename = "auth-ext-cftrace")]
     pub auth_ext_cftrace: Option<bool>,
+    #[serde(rename = "cftrace-url")]
+    pub cftrace_url: Option<String>,
     pub allowed_locs: Option<Vec<String>>,
 }
 
@@ -127,6 +129,7 @@ impl Default for SecurityConfig {
             auth_ext_secq: Some(false),
             auth_ext_warp: Some(false),
             auth_ext_cftrace: Some(false),
+            cftrace_url: Some("https://cloudflare.com/cdn-cgi/trace".to_string()),
             allowed_locs: Some(vec!["CN".to_string()]),
         }
     }
