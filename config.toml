@@ -28,7 +28,7 @@ default-src 'self'; \
 script-src 'self'; \
 style-src 'self' 'unsafe-inline'; \
 img-src 'self' data:; \
-connect-src 'self' https://cloudflare.com https://*.cloudflare.com https://sulyhub.cn https://*.sulyhub.cn; \
+connect-src 'self' https://cloudflare.com https://*.cloudflare.com; \
 font-src 'self'; \
 object-src 'none'; \
 base-uri 'self'; \
