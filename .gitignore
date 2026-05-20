@@ -1,6 +1,8 @@
 /target
 /MWC
 /.claude
+/.gemini
+/.antigravitycli
 /CLAUDE.md
 /GEMINI.md
 /static/images/*
