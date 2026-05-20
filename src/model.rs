@@ -103,6 +103,7 @@ pub struct SecurityConfig {
     pub permissions_policy: String,
     pub admin_password: Option<String>,
     pub admin_security_answers: Option<Vec<String>>,
+    pub admin_security_questions: Option<Vec<String>>,
     #[serde(rename = "auth-ext-secq")]
     pub auth_ext_secq: Option<bool>,
     #[serde(rename = "auth-ext-warp")]
@@ -126,6 +127,11 @@ impl Default for SecurityConfig {
             permissions_policy: "camera=(), microphone=(), geolocation=(), payment=()".into(),
             admin_password: None,
             admin_security_answers: None,
+            admin_security_questions: Some(vec![
+                "我的暗恋对象是谁".to_string(),
+                "我喜欢吃什么".to_string(),
+                "我的专业是什么".to_string(),
+            ]),
             auth_ext_secq: Some(false),
             auth_ext_warp: Some(false),
             auth_ext_cftrace: Some(false),

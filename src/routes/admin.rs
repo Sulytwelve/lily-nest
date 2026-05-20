@@ -27,6 +27,7 @@ pub struct AuthConfigResponse {
     pub auth_ext_secq: bool,
     pub auth_ext_cftrace: bool,
     pub cftrace_url: Option<String>,
+    pub security_questions: Option<Vec<String>>,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -49,6 +50,7 @@ async fn get_auth_config(State(state): State<Arc<AppState>>) -> Json<AuthConfigR
         auth_ext_secq: security_config.auth_ext_secq.unwrap_or(false),
         auth_ext_cftrace: security_config.auth_ext_cftrace.unwrap_or(false),
         cftrace_url: security_config.cftrace_url.clone(),
+        security_questions: security_config.admin_security_questions.clone(),
     })
 }
 

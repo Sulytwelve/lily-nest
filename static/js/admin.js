@@ -14,11 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let securityAnswerInput = null;
     let securityQuestionLabel = null;
 
-    const securityQuestions = [
-        "我的暗恋对象是谁",
-        "我喜欢吃什么",
-        "我的专业是什么"
-    ];
+    let securityQuestions = [];
 
     let currentPassword = localStorage.getItem('admin_password') || '';
     let currentAnswer = localStorage.getItem('admin_answer') || '';
@@ -41,6 +37,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const config = await res.json();
                 authExtSecqEnabled = config.auth_ext_secq;
                 authExtCftraceEnabled = config.auth_ext_cftrace;
+                if (config.security_questions) {
+                    securityQuestions = config.security_questions;
+                }
                 if (config.cftrace_url && config.cftrace_url.trim() !== '') {
                     let url = config.cftrace_url.trim();
                     if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/')) {
@@ -72,7 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function pickRandomQuestion() {
-        if (!authExtSecqEnabled) return 0;
+        if (!authExtSecqEnabled || !securityQuestions || securityQuestions.length === 0) return 0;
         const index = Math.floor(Math.random() * securityQuestions.length);
         if (securityQuestionLabel) {
             securityQuestionLabel.innerText = `Security Question: ${securityQuestions[index]}`;

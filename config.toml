@@ -18,6 +18,7 @@ gzip_level = 9
 allow_origins = ["*"]
 admin_password = "admin"
 admin_security_answers = ["default1", "default2", "default3"]
+admin_security_questions = ["我的暗恋对象是谁", "我喜欢吃什么", "我的专业是什么"]
 auth-ext-secq = true
 auth-ext-warp = false
 auth-ext-cftrace = true
