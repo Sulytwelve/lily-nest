@@ -297,6 +297,7 @@ async fn get_config(Path(name): Path<String>) -> Result<String, StatusCode> {
 }
 
 async fn save_config(
+    State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
     Json(payload): Json<SaveConfigRequest>,
 ) -> Result<StatusCode, StatusCode> {
@@ -311,7 +312,15 @@ async fn save_config(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    fs::write(&name, payload.content).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    info!("Updated config file: {}", name);
+    // Asynchronously write to disk (CPU-friendly non-blocking IO)
+    tokio::fs::write(&name, &payload.content).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    info!("Updated config file on disk asynchronously: {}", name);
+
+    // Instantly refresh in-memory HTML index cache
+    let rendered = crate::routes::home::render_index();
+    let mut cache = state.html_cache.write().await;
+    *cache = rendered;
+    info!("In-memory HTML cache refreshed successfully after saving {}", name);
+
     Ok(StatusCode::OK)
 }
