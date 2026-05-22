@@ -23,18 +23,14 @@ async fn handler_home_page(
 ) -> Response {
     let started_at = *state.started_at.read().await;
 
-    // debug 模式下每次重新渲染，不做 304
+    // debug 模式下每次重新渲染，不做缓存
     if cfg!(debug_assertions) {
         let html = crate::render::render_index();
-        let mut res = (
-            [(header::CACHE_CONTROL, "public, max-age=300")],
+        let res = (
+            [(header::CACHE_CONTROL, "no-cache")],
             Html(html),
         )
             .into_response();
-        res.headers_mut().insert(
-            header::LAST_MODIFIED,
-            HeaderValue::from_str(&httpdate::fmt_http_date(started_at)).unwrap(),
-        );
         return res;
     }
 
