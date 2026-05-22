@@ -27,7 +27,9 @@ async fn main() {
 
     // 预压缩资源文件
     let assets_config = config::load_assets_config();
-    compressor::ensure_precompressed_assets(&assets_config);
+    if assets_config.enable_precompression {
+        compressor::ensure_precompressed_assets(&assets_config);
+    }
 
     // 构建应用（路由、静态资源等）
     let app = app::build_app();

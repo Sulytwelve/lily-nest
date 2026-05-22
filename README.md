@@ -102,7 +102,7 @@ lily-nest/
 > **注意：** release 模式下若未配置证书，程序会直接 panic 拒绝启动。
 
 ## 配置说明
-- `config.toml`：TLS 证书路径、`[security]` 安全策略（CORS、CSP、Permissions Policy、管理员密码及双重验证配置）
+- `config.toml`：TLS 证书路径、`[security]` 安全策略（CORS、CSP、Permissions Policy、管理员密码及双重验证配置）、`[assets]` 预压缩配置（启用开关、目标目录、压缩类型等）
 - `site.toml`：站点配置与展示内容，已拆分为两部分：
   - `[site]`：页面元数据（标题 `index_title` 与 `meta_desc` 元描述信息）
   - `[profile]`：个人主页卡片内容（包括头像、背景、团队成员、自我介绍等）
@@ -120,7 +120,7 @@ lily-nest/
 ## 亮点与注意事项
 - debug 模式每次请求重新渲染页面，方便开发调试
 - release 模式使用内存缓存，首页渲染结果复用（5 分钟 Cache-Control）
-- 静态资源预压缩：支持 Gzip、Brotli 和 Zstd 压缩，自动检测文件更新并重新压缩，提高网站性能
+- 静态资源预压缩（默认关闭）：在 `config.toml` 的 `[assets]` 中设置 `enable_precompression = true` 以开启，支持 Gzip、Brotli 和 Zstd 压缩，自动检测文件更新并重新压缩
 - 深色主题完全由 CSS `@media (prefers-color-scheme: dark)` 驱动，无 JS 依赖，无闪烁
 - 前端资源基于 Material Design 3 规范，使用 `@material/web` 组件库本地构建
 - 项目部署于 Cloudflare，开放 8443（HTTPS）和 8880（HTTP dev）端口

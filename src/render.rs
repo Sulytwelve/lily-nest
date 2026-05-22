@@ -81,7 +81,7 @@ pub fn render_index() -> String {
         .collect::<String>();
 
     // 替换占位符
-    html = html.replace("{{title}}", &html_escape(&profile_data.current_identity));
+    html = html.replace("{{profile_title}}", &html_escape(&profile_data.current_identity));
     html = html.replace("{{index_title}}", &html_escape(&site_config.index_title));
     html = html.replace("{{meta_desc}}", &html_escape(&site_config.meta_desc));
     html = html.replace(

@@ -144,6 +144,7 @@ impl Default for SecurityConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct AssetsConfig {
+    pub enable_precompression: bool,
     pub assets_dirs: Vec<String>,
     pub target_exts: Vec<String>,
     pub compression_types: Vec<String>,
@@ -155,6 +156,7 @@ pub struct AssetsConfig {
 impl Default for AssetsConfig {
     fn default() -> Self {
         Self {
+            enable_precompression: false,
             assets_dirs: vec![
                 "./static/css".to_string(),
                 "./static/js".to_string(),
@@ -168,7 +170,7 @@ impl Default for AssetsConfig {
                 "ttf".to_string(),
                 "otf".to_string(),
             ],
-            compression_types: vec!["br".to_string(), "gz".to_string()],
+            compression_types: vec!["br".to_string(), "gz".to_string(), "zst".to_string()],
             zstd_level: 3,
             brotli_quality: 4,
             gzip_level: 8,

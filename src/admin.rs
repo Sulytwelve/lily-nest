@@ -170,6 +170,10 @@ pub async fn admin_auth_middleware(
             failure_reason = Some("Password incorrect".to_string());
             false
         }
+        (Some(_), None) => {
+            failure_reason = Some("No password configured on server".to_string());
+            false
+        }
         _ => {
             failure_reason = Some("No password provided".to_string());
             false

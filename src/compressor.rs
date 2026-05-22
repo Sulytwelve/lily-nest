@@ -48,8 +48,12 @@ fn need_recompress(src: &Path, dst: &Path) -> bool {
     };
 
     // 2. 获取源文件和目标文件的修改时间
-    let src_mtime = src_meta.modified().unwrap();
-    let dst_mtime = dst_meta.modified().unwrap();
+    let Ok(src_mtime) = src_meta.modified() else {
+        return false;
+    };
+    let Ok(dst_mtime) = dst_meta.modified() else {
+        return true;
+    };
 
     // 3. 只有源文件比压缩文件“新”，才返回 true
     src_mtime > dst_mtime
@@ -75,8 +79,14 @@ fn process_compression(file_path: &PathBuf, config: &AssetsConfig) {
         }
     };
 
-    let base_name = file_path.file_stem().unwrap().to_string_lossy().to_string();
-    let parent_dir = file_path.parent().unwrap();
+    let Some(base_name) = file_path.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+        warn!("文件无文件名: {}", file_path.display());
+        return;
+    };
+    let Some(parent_dir) = file_path.parent() else {
+        warn!("文件无父目录: {}", file_path.display());
+        return;
+    };
 
     // 根据配置的压缩类型执行压缩
     for comp_type in &config.compression_types {

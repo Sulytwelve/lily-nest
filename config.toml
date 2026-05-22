@@ -3,6 +3,7 @@
 # key_path  = "./certs/example.com.key"
 
 [assets]
+enable_precompression = false
 assets_dirs = ["./static/css", "./static/js", "./static/fonts"]
 target_exts = ["css", "js", "woff", "woff2", "ttf", "otf"]
 compression_types = ["br"]                                      # ["zst", "br", "gz"]
