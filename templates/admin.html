@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Lily Nest</title>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/css/md-theme.css">
+    <link rel="stylesheet" href="/css/user-theme.css">
+    <link rel="stylesheet" href="/css/admin.css">
+    
+    <!-- Scripts -->
+    <script type="module" src="/js/MaterialWeb.js"></script>
+    <script src="/js/admin.js?v=0.1.6" defer></script>
+</head>
+<body>
+    <header class="app-bar">
+        <div class="app-bar-content">
+            <section class="end">
+                <md-filled-tonal-button id="logout-btn">Logout</md-filled-tonal-button>
+                <md-filled-button href="/">Home</md-filled-button>
+            </section>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <div class="admin-header">
+            <h1 class="md-typescale-display-small">Admin Panel</h1>
+        </div>
+
+        <div class="editor-grid">
+            <!-- File Navigation -->
+            <div class="file-list-container">
+                <span class="label-text">CONFIG FILES</span>
+                <div class="tonal-container">
+                    <md-list id="config-list"></md-list>
+                </div>
+            </div>
+
+            <!-- Main Editor Area -->
+            <div class="tonal-container editor-box">
+                <div class="editor-toolbar">
+                    <h2 id="current-filename" class="md-typescale-title-large">No file selected</h2>
+                    <md-filled-button id="save-btn" disabled>Save</md-filled-button>
+                </div>
+                <textarea id="editor" placeholder="Select a configuration file to edit..." spellcheck="false"></textarea>
+                <div id="status-text" class="status-info">Ready</div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Authentication Dialog -->
+    <md-dialog id="auth-dialog">
+        <div slot="headline">Authentication Required</div>
+        <div slot="content">
+            <p>Please enter the admin password and answer the security question.</p>
+            <md-outlined-text-field id="password-input" label="Password" type="password" style="margin-bottom: 16px; width: 100%;"></md-outlined-text-field>
+            <div id="security-question-container"></div>
+        </div>
+        <div slot="actions">
+            <md-text-button id="login-confirm-btn">Login</md-text-button>
+        </div>
+    </md-dialog>
+</body>
+</html>

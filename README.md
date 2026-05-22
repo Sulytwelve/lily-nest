@@ -22,54 +22,56 @@
 
 ## 主要功能
 - 首页动态渲染（项目、团队成员、关于我）
+- **后台管理面板（/admin）：支持在线编辑 TOML 配置文件（site.toml, projects.toml, about.toml 等）**
 - 配置文件驱动（config.toml、site.toml、projects.toml、about.toml）
-- config.toml 中的 [security] 块支持动态 CORS、CSP、Permissions Policy 配置
-- RESTful API（/api/v1/health、/api/v1/home/profile）
+- config.toml 中的 [security] 块支持动态 CORS、CSP、Permissions Policy 及 **管理员密码** 配置
+- RESTful API（/api/v1/health、/api/v1/home/profile、/api/v1/admin/*）
 - 静态资源服务（图片、CSS、JS、robots.txt、sitemap.xml 等）
-- 静态资源预压缩（Gzip、Brotli）
+- 静态资源预压缩（Gzip、Brotli、Zstd）
 - 深色主题跟随系统（纯 CSS，无 JS 闪烁）
 - HTML 页面缓存（release 模式，5 分钟）
 - HTTP 安全头（CSP、HSTS、X-Frame-Options、Permissions-Policy 等）
 - 安全配置加载增强：release 模式缓存 security 配置，debug 模式仍会热加载；非法 origin 会跳过并记录错误日志
 - release 模式强制 HTTPS，无证书直接拒绝启动
 - 应用路由与资源路由已拆分：
-  - App router 提供 `/`、`/index.html` 重定向、`/api/v1/*` 和安全头中间件
-  - 静态资源 router 提供 `/robots.txt`、`/BingSiteAuth.xml`、`/sitemap.xml`、`/favicon.ico`、`/images/*`、`/css/*`、`/js/*`、`/fonts/*`
-  - CSS/JS/Fonts 静态资源支持预压缩 gzip、Brotli、Zstd
+  - App router 提供 `/`、`/index.html` 重定向、`/admin`、`/api/v1/*` 和安全头中间件
+  - 静态资源 router 提供 `/robots.txt`、`/favicon.ico`、`/css/*`、`/js/*` 等
 
 ## 项目结构
 ```
 lily-nest/
 ├── Cargo.toml
-├── config.toml               # 站点基础配置（证书、安全、动态安全策略）
-├── site.toml                 # 站点基础信息配置（[site]）
+├── config.toml               # 站点基础配置（证书、安全策略、管理员密码）
+├── site.toml                 # 站点基础信息配置
 ├── projects.toml             # 项目列表配置
 ├── about.toml                # 关于我列表配置
-├── certs/
-│   ├── example.com.pem       # SSL 证书
-│   └── example.com.key       # SSL 私钥
+├── MWC/                      # Material Web Components 构建环境
+├── certs/                    # SSL 证书目录
 ├── src/
-│   ├── app.rs                # 应用路由、中间件与页面渲染
-│   ├── compressor.rs         # 静态资源预压缩
-│   ├── config.rs             # 配置加载
-│   ├── main.rs               # 启动入口（dev/release 分支）
-│   ├── middlewares.rs        # 中间件与安全配置逻辑
-│   ├── model.rs              # 数据结构
-│   └── routes/
-│       ├── api.rs            # API 路由
-│       └── mod.rs
+│   ├── app.rs                # 应用路由与中间件
+│   ├── routes/
+│   │   ├── admin.rs          # 后台管理路由逻辑
+│   │   ├── api.rs            # API 路由
+│   │   └── home.rs           # 首页渲染
+│   └── ...
 ├── static/
 │   ├── css/
-│   │   ├── md-theme.css      # Material 3 主题色值（含深色媒体查询）
-│   │   └── user-theme.css    # 自定义页面布局样式
+│   │   ├── admin.css         # 后台自定义样式
+│   │   └── ...
 │   ├── js/
-│   │   ├── user.js           # 页面交互逻辑
-│   │   └── MaterialWeb.js    # @material/web 组件（rollup 本地构建）
-│   └── images/               # 图片资源
-├── templates/
-│   └── index.html            # 首页模板
+│   │   ├── admin.js          # 后台交互逻辑
+│   │   ├── MaterialWeb.js    # 核心组件库（本地构建）
+│   │   └── ...
 └── ...
 ```
+
+## 管理后台 (/admin)
+项目内置了一个基于 Material Design 3 的管理后台，允许管理员直接在浏览器中修改站点内容：
+- **安全验证**：通过请求头 `X-Admin-Password` 进行验证。
+- **密码设置**：在 `config.toml` 的 `[security]` 块中设置 `admin_password`。
+- **文件限制**：仅允许编辑内容相关的 `.toml` 文件，自动排除 `config.toml` 和 `Cargo.toml` 以保系统安全。
+
+> **安全提示**：在 Debug 模式（HTTP）下，密码以明文传输，仅建议在本地开发环境使用。在生产环境（Release 模式）下，必须配置 HTTPS 以确保传输加密。
 
 ## 启动方式
 
