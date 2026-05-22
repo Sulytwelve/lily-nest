@@ -194,3 +194,19 @@ pub struct AuthConfigResponse {
     pub security_questions: Option<Vec<String>>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct SiteConfig {
+    pub index_title: String,
+    pub meta_desc: String,
+}
+
+impl Default for SiteConfig {
+    fn default() -> Self {
+        Self {
+            index_title: "Lily Nest example - 梨窝".to_string(),
+            meta_desc: "梨窝 meta example".to_string(),
+        }
+    }
+}
+

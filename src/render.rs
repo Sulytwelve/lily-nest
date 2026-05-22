@@ -1,10 +1,11 @@
-use crate::config::{load_about_items, load_projects, load_site_profile};
+use crate::config::{load_about_items, load_projects, load_site_profile, load_site_config};
 use std::fs;
 
 pub fn render_index() -> String {
     let profile_data = load_site_profile();
     let projects_data = load_projects();
     let about_data = load_about_items();
+    let site_config = load_site_config();
 
     let mut html = fs::read_to_string("templates/index.html").unwrap_or_else(|_| {
         "<!doctype html><html><body><h1>templates/index.html not found</h1></body></html>"
@@ -81,6 +82,8 @@ pub fn render_index() -> String {
 
     // 替换占位符
     html = html.replace("{{title}}", &html_escape(&profile_data.current_identity));
+    html = html.replace("{{index_title}}", &html_escape(&site_config.index_title));
+    html = html.replace("{{meta_desc}}", &html_escape(&site_config.meta_desc));
     html = html.replace(
         "{{avatar}}",
         &html_escape(sanitize_url(&profile_data.avatar_url)),

@@ -1,4 +1,4 @@
-use crate::model::{AboutList, AssetsConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig};
+use crate::model::{AboutList, AssetsConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig};
 use serde::Deserialize;
 use std::fs;
 use tracing::error;
@@ -15,17 +15,39 @@ pub fn load_site_profile() -> HomeProfile {
 
     #[derive(Deserialize)]
     struct Config {
-        site: HomeProfile,
+        profile: HomeProfile,
     }
 
     // 2. 尝试解析
     toml::from_str::<Config>(&content)
-        .map(|c| c.site)
+        .map(|c| c.profile)
         .unwrap_or_else(|e| {
             // 这里会打印出具体的错误：是少了双引号或字段类型对不上
             // 配合 `model.rs` 的#[serde(default)]，缺失字段不会报错，只有“类型错误”或“格式错误”才会走到这里
-            error!("解析 site.toml 失败: {}. 请检查格式是否正确。", e);
+            error!("解析 site.toml 中的 [profile] 失败: {}. 请检查格式是否正确。", e);
             HomeProfile::default()
+        })
+}
+
+pub fn load_site_config() -> SiteConfig {
+    let content = match fs::read_to_string("site.toml") {
+        Ok(c) => c,
+        Err(e) => {
+            error!("提示: 未找到 site.toml ({}), 使用默认元配置", e);
+            return SiteConfig::default();
+        }
+    };
+
+    #[derive(Deserialize)]
+    struct Config {
+        site: SiteConfig,
+    }
+
+    toml::from_str::<Config>(&content)
+        .map(|c| c.site)
+        .unwrap_or_else(|e| {
+            error!("解析 site.toml 中的 [site] 失败: {}. 请检查格式是否正确。", e);
+            SiteConfig::default()
         })
 }
 

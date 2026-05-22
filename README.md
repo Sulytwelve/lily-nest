@@ -42,18 +42,26 @@
 lily-nest/
 ├── Cargo.toml
 ├── config.toml               # 站点基础配置（证书、安全策略、管理员密码）
-├── site.toml                 # 站点基础信息配置
+├── site.toml                 # 站点基础信息配置（SEO元数据 [site] 及 个人主页 [profile]）
 ├── projects.toml             # 项目列表配置
 ├── about.toml                # 关于我列表配置
 ├── MWC/                      # Material Web Components 构建环境
 ├── certs/                    # SSL 证书目录
 ├── src/
-│   ├── app.rs                # 应用路由与中间件
-│   ├── routes/
-│   │   ├── admin.rs          # 后台管理路由逻辑
-│   │   ├── api.rs            # API 路由
-│   │   └── home.rs           # 首页渲染
-│   └── ...
+│   ├── main.rs               # 应用入口
+│   ├── app.rs                # 路由编织与全局中间件
+│   ├── state.rs              # 全局共享状态 AppState
+│   ├── admin.rs              # 后台管理全部逻辑（路由、控制器、鉴权）
+│   ├── render.rs             # 纯 HTML 渲染逻辑与占位符替换
+│   ├── middlewares.rs        # 全局 HTTP 中间件（CORS 与安全头）
+│   ├── config.rs             # 配置文件解析加载
+│   ├── model.rs              # 数据模型定义
+│   ├── compressor.rs         # 静态资源预压缩工具
+│   └── routes/
+│       ├── mod.rs            # 路由模块定义
+│       ├── home.rs           # 首页路由
+│       ├── api.rs            # 公开 RESTful API 路由
+│       └── static_assets.rs  # 静态资源服务路由
 ├── static/
 │   ├── css/
 │   │   ├── admin.css         # 后台自定义样式
@@ -94,8 +102,10 @@ lily-nest/
 > **注意：** release 模式下若未配置证书，程序会直接 panic 拒绝启动。
 
 ## 配置说明
-- `config.toml`：TLS 证书路径、[security] 安全策略（CORS、CSP、Permissions Policy）
-- `site.toml`：站点基础信息，使用 `[site]` 表配置
+- `config.toml`：TLS 证书路径、`[security]` 安全策略（CORS、CSP、Permissions Policy、管理员密码及双重验证配置）
+- `site.toml`：站点配置与展示内容，已拆分为两部分：
+  - `[site]`：页面元数据（标题 `index_title` 与 `meta_desc` 元描述信息）
+  - `[profile]`：个人主页卡片内容（包括头像、背景、团队成员、自我介绍等）
 - `projects.toml`：项目列表
 - `about.toml`：关于我
 - `static/`：静态资源（图片、CSS、JS、robots.txt 等）

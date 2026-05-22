@@ -1,7 +1,11 @@
-[site]
+[profile]
 current_identity = "Temp Page"
 avatar_url = "/images/avatar.webp"
 bg_url = "/images/bg.webp"
 team_members = ["User_1", "User_2"]
-# site_version = "0.1.9-beta"
+# site_version = "0.2.0-beta"
 intro = "template."
+
+[site]
+index_title = "Lily Nest example - 梨窝"
+meta_desc = "梨窝 meta example"
