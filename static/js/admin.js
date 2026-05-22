@@ -25,14 +25,27 @@ document.addEventListener('DOMContentLoaded', () => {
     let authExtCftraceEnabled = false;
     let cftraceUrl = 'https://cloudflare.com/cdn-cgi/trace';
 
+    // 被限流时的时间戳，此时间之前不再发请求
+    let rateLimitedUntil = 0;
+
     function updateStatus(msg, isError = false) {
         statusText.innerText = msg;
         statusText.style.color = isError ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-on-surface-variant)';
     }
 
+    function clearStatus() {
+        statusText.innerText = '';
+    }
+
     async function initAuthConfig() {
         try {
             const res = await fetch('/api/v1/admin/auth_config');
+            if (res.status === 429) {
+                rateLimitedUntil = Date.now() + 60000;
+                updateStatus('Server not responding, please try again later', true);
+                console.warn('Admin: rate limited by server');
+                return;
+            }
             if (res.ok) {
                 const config = await res.json();
                 authExtSecqEnabled = config.auth_ext_secq;
@@ -59,14 +72,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     `;
                     securityAnswerInput = document.getElementById('security-answer-input');
                     securityQuestionLabel = document.getElementById('security-question-label');
-                    
+
                     securityAnswerInput.addEventListener('keydown', (e) => {
                         if (e.key === 'Enter') loginConfirmBtn.click();
                     });
                 }
+            } else {
+                console.warn('Admin: auth_config fetch failed');
+                updateStatus('Server not responding', true);
             }
         } catch (e) {
-            console.error('Failed to fetch auth config:', e);
+            console.warn('Admin: auth_config network error');
+            updateStatus('Server not responding', true);
         }
     }
 
@@ -88,44 +105,63 @@ document.addEventListener('DOMContentLoaded', () => {
                 rawCfTrace = await res.text();
             }
         } catch (e) {
-            console.warn('Failed to fetch Cloudflare trace:', e);
+            console.warn('Admin: trace fetch failed');
         }
     }
 
     async function apiFetch(url, options = {}) {
+        // 被限流期间不发送请求
+        if (Date.now() < rateLimitedUntil) {
+            updateStatus('Server not responding, please try again later', true);
+            throw new Error('Rate limited');
+        }
+
         if (authExtCftraceEnabled && !rawCfTrace) {
             await fetchTrace();
         }
 
+        const isGet = !options.method || options.method === 'GET';
         const headers = {
             'X-Admin-Password': encodeURIComponent(currentPassword),
             'X-Admin-Answer': authExtSecqEnabled ? encodeURIComponent(currentAnswer) : '',
             'X-Admin-Question-Index': authExtSecqEnabled ? currentQuestionIndex.toString() : '0',
             'X-Admin-Trace': encodeURIComponent(rawCfTrace),
-            'Content-Type': 'application/json',
+            ...(isGet ? {} : { 'Content-Type': 'application/json' }),
             ...options.headers
         };
+
+        let response;
         try {
-            const response = await fetch(url, { ...options, headers });
-            if (response.status === 401) {
-                tempQuestionIndex = pickRandomQuestion();
-                authDialog.show();
-                throw new Error('Unauthorized');
-            }
-            return response;
+            response = await fetch(url, { ...options, headers });
         } catch (e) {
-            if (e.message !== 'Unauthorized') {
-                updateStatus(`Error: ${e.message}`, true);
-            }
+            updateStatus('Server not responding', true);
             throw e;
         }
+
+        if (response.status === 429) {
+            rateLimitedUntil = Date.now() + 60000;
+            updateStatus('Server not responding, please try again later', true);
+            console.warn('Admin: rate limited by server');
+            throw new Error('Rate limited');
+        }
+
+        if (response.status === 401) {
+            tempQuestionIndex = pickRandomQuestion();
+            authDialog.show();
+            throw new Error('Unauthorized');
+        }
+
+        return response;
     }
 
-    loginConfirmBtn.addEventListener('click', () => {
+    loginConfirmBtn.addEventListener('click', async () => {
+        if (loginConfirmBtn.disabled) return;
+
         if (!passwordInput.value || (authExtSecqEnabled && !securityAnswerInput.value)) {
             updateStatus('Required fields missing', true);
             return;
         }
+
         currentPassword = passwordInput.value;
         localStorage.setItem('admin_password', currentPassword);
 
@@ -137,7 +173,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         authDialog.close();
-        loadConfigs();
+        loginConfirmBtn.disabled = true;
+        try {
+            await loadConfigs();
+        } finally {
+            loginConfirmBtn.disabled = false;
+        }
     });
 
     passwordInput.addEventListener('keydown', (e) => {
@@ -150,9 +191,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             updateStatus('Loading files...');
             const res = await apiFetch('/api/v1/admin/configs');
-            if (!res.ok) throw new Error('Failed to load configs');
+            if (!res.ok) throw new Error('Request failed');
             const configs = await res.json();
-            
+
             configList.innerHTML = '';
             configs.forEach(cfg => {
                 const item = document.createElement('md-list-item');
@@ -161,9 +202,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 item.addEventListener('click', () => loadFile(cfg.name));
                 configList.appendChild(item);
             });
-            updateStatus('Ready');
+            clearStatus();
         } catch (e) {
-            console.error(e);
+            if (e.message !== 'Unauthorized' && e.message !== 'Rate limited') {
+                updateStatus('Server not responding', true);
+            }
+            console.warn('Admin: load configs failed');
         }
     }
 
@@ -176,12 +220,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (res.ok) {
                 editor.value = await res.text();
                 saveBtn.disabled = false;
-                updateStatus('File loaded.');
+                clearStatus();
             } else {
-                updateStatus(`Error: ${res.statusText}`, true);
+                updateStatus('Server not responding', true);
             }
         } catch (e) {
-            console.error(e);
+            if (e.message !== 'Unauthorized' && e.message !== 'Rate limited') {
+                updateStatus('Server not responding', true);
+            }
+            console.warn('Admin: load file failed');
         }
     }
 
@@ -195,14 +242,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ content: editor.value })
             });
             if (res.ok) {
-                updateStatus('Saved successfully.');
-                setTimeout(() => updateStatus('Ready'), 3000);
+                updateStatus('Saved');
+                setTimeout(() => clearStatus(), 3000);
             } else {
-                const text = await res.text();
-                updateStatus(`Save Error: ${text}`, true);
+                updateStatus('Server not responding', true);
             }
         } catch (e) {
-            updateStatus(`Error: ${e.message}`, true);
+            if (e.message !== 'Unauthorized' && e.message !== 'Rate limited') {
+                updateStatus('Server not responding', true);
+            }
         } finally {
             saveBtn.disabled = false;
         }

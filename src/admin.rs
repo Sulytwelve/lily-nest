@@ -1,11 +1,12 @@
 use std::sync::Arc;
 use axum::{
     extract::{Path, State, Request},
-    http::{StatusCode, Method},
+    http::{StatusCode, Method, header},
     response::{Html, IntoResponse, Response},
     routing::get,
     Json, Router, middleware,
 };
+use std::time::{Duration, Instant};
 use std::fs;
 use tracing::{info, warn, error};
 
@@ -298,7 +299,43 @@ pub async fn save_config(
     Ok(StatusCode::OK)
 }
 
-pub async fn get_auth_config(State(state): State<Arc<AppState>>) -> Json<AuthConfigResponse> {
+pub async fn get_auth_config(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    // 提取真实客户端 IP（穿透 CDN）
+    let headers = req.headers();
+    let client_ip = headers
+        .get("cf-connecting-ip")
+        .or_else(|| headers.get("x-real-ip"))
+        .or_else(|| headers.get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // 频率限制：每个 IP 每分钟最多 10 次
+    let now = Instant::now();
+    let mut limiter = state.auth_rate_limiter.lock().await;
+    
+    // 全量清理所有 IP 的过期记录并移除空窗口，防止 HashMap 因恶意扫描而无限增长
+    limiter.retain(|_, w| {
+        w.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
+        !w.is_empty()
+    });
+
+    let window = limiter.entry(client_ip).or_default();
+    if window.len() >= 10 {
+        drop(limiter);
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, "60")],
+            "Too many requests",
+        )
+            .into_response();
+    }
+    window.push(now);
+    drop(limiter);
+
     let security_config = if cfg!(debug_assertions) {
         crate::config::load_security_config()
     } else {
@@ -310,4 +347,5 @@ pub async fn get_auth_config(State(state): State<Arc<AppState>>) -> Json<AuthCon
         cftrace_url: security_config.cftrace_url.clone(),
         security_questions: security_config.admin_security_questions.clone(),
     })
+    .into_response()
 }

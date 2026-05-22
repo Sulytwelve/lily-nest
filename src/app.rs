@@ -1,7 +1,7 @@
-use std::{sync::Arc, time::SystemTime};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use axum::{Router, middleware};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::{
     config::load_security_config,
@@ -16,6 +16,7 @@ pub fn build_app() -> Router {
         html_cache: RwLock::new(crate::render::render_index()),
         security_config,
         started_at: RwLock::new(SystemTime::now()),
+        auth_rate_limiter: Mutex::new(HashMap::new()),
     });
 
     let cors = build_cors_layer(&state.security_config);
