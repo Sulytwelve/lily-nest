@@ -57,7 +57,8 @@ async fn handler_home_page(
         .into_response();
     res.headers_mut().insert(
         header::LAST_MODIFIED,
-        HeaderValue::from_str(&httpdate::fmt_http_date(started_at)).unwrap(),
+        HeaderValue::from_str(&httpdate::fmt_http_date(started_at))
+            .unwrap_or_else(|_| HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT")),
     );
     res
 }
