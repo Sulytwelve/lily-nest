@@ -5,23 +5,24 @@ use tokio::sync::RwLock;
 
 use crate::{
     config::load_security_config,
-    middlewares::{AppState, build_cors_layer, security_headers},
+    middlewares::{build_cors_layer, security_headers},
     routes,
+    state::AppState,
 };
 
 pub fn build_app() -> Router {
     let security_config = load_security_config();
     let state = Arc::new(AppState {
-        html_cache: RwLock::new(routes::home::render_index()),
+        html_cache: RwLock::new(crate::render::render_index()),
         security_config,
-        started_at: SystemTime::now(),
+        started_at: RwLock::new(SystemTime::now()),
     });
 
     let cors = build_cors_layer(&state.security_config);
 
     let app_routes = routes::home::router(state.clone())
         .nest("/api/v1", routes::api::router())
-        .merge(routes::admin::router(state.clone()))
+        .merge(crate::admin::router(state.clone()))
         .layer(cors)
         .layer(middleware::from_fn_with_state(state, security_headers));
 

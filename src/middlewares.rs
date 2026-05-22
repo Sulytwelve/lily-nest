@@ -6,19 +6,10 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::error;
 
-use crate::{config::load_security_config, model::SecurityConfig};
-
-use std::time::SystemTime;
-
-pub struct AppState {
-    pub html_cache: RwLock<String>,
-    pub security_config: SecurityConfig,
-    pub started_at: SystemTime,
-}
+use crate::{config::load_security_config, model::SecurityConfig, state::AppState};
 
 pub fn build_cors_layer(security_config: &SecurityConfig) -> CorsLayer {
     let cors = CorsLayer::new()
@@ -84,4 +75,3 @@ pub async fn security_headers(
 
     res
 }
-
