@@ -38,9 +38,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     (function initAuthConfig() {
-        const config = window.__AUTH_CONFIG__;
-        if (!config) {
-            console.warn('Admin: auth config not found in page');
+        const configElement = document.getElementById('auth-config-json');
+        if (!configElement) {
+            console.warn('Admin: auth config element not found in page');
+            updateStatus('Server not responding', true);
+            return;
+        }
+        let config;
+        try {
+            config = JSON.parse(configElement.textContent);
+        } catch (e) {
+            console.warn('Admin: failed to parse auth config');
             updateStatus('Server not responding', true);
             return;
         }
