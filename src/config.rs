@@ -130,3 +130,17 @@ pub fn load_assets_config() -> AssetsConfig {
             AssetsConfig::default()
         })
 }
+
+pub fn get_editable_configs() -> Vec<String> {
+    let mut editable = Vec::new();
+    if let Ok(entries) = fs::read_dir(".") {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.ends_with(".toml") && name != "config.toml" && name != "Cargo.toml" {
+                    editable.push(name.to_string());
+                }
+            }
+        }
+    }
+    editable
+}

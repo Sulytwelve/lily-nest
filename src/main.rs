@@ -4,7 +4,6 @@ mod config;
 mod middlewares;
 mod model;
 mod routes;
-pub mod admin;
 pub mod render;
 pub mod state;
 

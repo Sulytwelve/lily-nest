@@ -22,8 +22,8 @@ pub fn build_app() -> Router {
     let cors = build_cors_layer(&state.security_config);
 
     let app_routes = routes::home::router(state.clone())
-        .nest("/api/v1", routes::api::router())
-        .merge(crate::admin::router(state.clone()))
+        .nest("/api/v1", routes::api::router(state.clone()))
+        .merge(routes::admin::router(state.clone()))
         .layer(cors)
         .layer(middleware::from_fn_with_state(state, security_headers));
 
