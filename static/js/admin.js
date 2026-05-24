@@ -37,55 +37,42 @@ document.addEventListener('DOMContentLoaded', () => {
         statusText.innerText = '';
     }
 
-    async function initAuthConfig() {
-        try {
-            const res = await fetch('/api/v1/admin/auth_config');
-            if (res.status === 429) {
-                rateLimitedUntil = Date.now() + 60000;
-                updateStatus('Server not responding, please try again later', true);
-                console.warn('Admin: rate limited by server');
-                return;
-            }
-            if (res.ok) {
-                const config = await res.json();
-                authExtSecqEnabled = config.auth_ext_secq;
-                authExtCftraceEnabled = config.auth_ext_cftrace;
-                if (config.security_questions) {
-                    securityQuestions = config.security_questions;
-                }
-                if (config.cftrace_url && config.cftrace_url.trim() !== '') {
-                    let url = config.cftrace_url.trim();
-                    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/')) {
-                        cftraceUrl = url;
-                    } else {
-                        if (url === window.location.hostname || url === window.location.host) {
-                            cftraceUrl = '/cdn-cgi/trace';
-                        } else {
-                            cftraceUrl = `https://${url}/cdn-cgi/trace`;
-                        }
-                    }
-                }
-                if (authExtSecqEnabled) {
-                    securityQuestionContainer.innerHTML = `
-                        <p id="security-question-label" class="md-typescale-body-medium" style="margin-bottom: 8px; color: var(--md-sys-color-primary);"></p>
-                        <md-outlined-text-field id="security-answer-input" label="Security Answer" style="width: 100%;"></md-outlined-text-field>
-                    `;
-                    securityAnswerInput = document.getElementById('security-answer-input');
-                    securityQuestionLabel = document.getElementById('security-question-label');
-
-                    securityAnswerInput.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter') loginConfirmBtn.click();
-                    });
-                }
-            } else {
-                console.warn('Admin: auth_config fetch failed');
-                updateStatus('Server not responding', true);
-            }
-        } catch (e) {
-            console.warn('Admin: auth_config network error');
+    (function initAuthConfig() {
+        const config = window.__AUTH_CONFIG__;
+        if (!config) {
+            console.warn('Admin: auth config not found in page');
             updateStatus('Server not responding', true);
+            return;
         }
-    }
+        authExtSecqEnabled = config.auth_ext_secq;
+        authExtCftraceEnabled = config.auth_ext_cftrace;
+        if (config.security_questions) {
+            securityQuestions = config.security_questions;
+        }
+        if (config.cftrace_url && config.cftrace_url.trim() !== '') {
+            let url = config.cftrace_url.trim();
+            if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/')) {
+                cftraceUrl = url;
+            } else {
+                if (url === window.location.hostname || url === window.location.host) {
+                    cftraceUrl = '/cdn-cgi/trace';
+                } else {
+                    cftraceUrl = `https://${url}/cdn-cgi/trace`;
+                }
+            }
+        }
+        if (authExtSecqEnabled) {
+            securityQuestionContainer.innerHTML = `
+                <p id="security-question-label" class="md-typescale-body-medium" style="margin-bottom: 8px; color: var(--md-sys-color-primary);"></p>
+                <md-outlined-text-field id="security-answer-input" label="Security Answer" style="width: 100%;"></md-outlined-text-field>
+            `;
+            securityAnswerInput = document.getElementById('security-answer-input');
+            securityQuestionLabel = document.getElementById('security-question-label');
+            securityAnswerInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') loginConfirmBtn.click();
+            });
+        }
+    })();
 
     function pickRandomQuestion() {
         if (!authExtSecqEnabled || !securityQuestions || securityQuestions.length === 0) return 0;
@@ -288,16 +275,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Initial load
-    initAuthConfig().then(() => {
-        if (currentPassword) {
-            loadConfigs();
-        } else {
-            setTimeout(() => {
-                if (!currentPassword) {
-                    tempQuestionIndex = pickRandomQuestion();
-                    authDialog.show();
-                }
-            }, 100);
-        }
-    });
+    if (currentPassword) {
+        loadConfigs();
+    } else {
+        setTimeout(() => {
+            if (!currentPassword) {
+                tempQuestionIndex = pickRandomQuestion();
+                authDialog.show();
+            }
+        }, 100);
+    }
 });

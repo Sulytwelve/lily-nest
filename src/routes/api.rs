@@ -1,17 +1,15 @@
 use std::sync::Arc;
 use axum::{
-    extract::{Path, State},
-    http::{StatusCode, header},
-    response::{IntoResponse, Response},
+    extract::{DefaultBodyLimit, Path, State},
+    http::StatusCode,
     routing::get,
     Json, Router, middleware,
 };
-use std::time::{Duration, Instant};
 use tracing::{info, error};
 
 use crate::{
     config::{load_site_profile, get_editable_configs},
-    model::{HealthResponse, HomeProfile, SaveConfigRequest, AuthConfigResponse, ConfigFile},
+    model::{ConfigFile, HealthResponse, HomeProfile, SaveConfigRequest},
     state::AppState,
 };
 
@@ -23,15 +21,13 @@ pub fn router(state: Arc<AppState>) -> Router {
     let admin_routes = Router::new()
         .route("/admin/configs", get(list_configs))
         .route("/admin/configs/{name}", get(get_config).post(save_config))
-        .route_layer(middleware::from_fn_with_state(state.clone(), crate::middlewares::admin_auth_middleware));
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::middlewares::admin_auth_middleware,
+        ))
+        .layer(DefaultBodyLimit::max(5 * 1024 * 1024));
 
-    let admin_public_routes = Router::new()
-        .route("/admin/auth_config", get(get_auth_config));
-
-    public_routes
-        .merge(admin_routes)
-        .merge(admin_public_routes)
-        .with_state(state)
+    public_routes.merge(admin_routes).with_state(state)
 }
 
 async fn get_home_profile() -> Json<HomeProfile> {
@@ -118,52 +114,4 @@ async fn save_config(
     info!("In-memory HTML cache and started_at refreshed successfully after saving {}", name);
 
     Ok(StatusCode::OK)
-}
-
-async fn get_auth_config(
-    State(state): State<Arc<AppState>>,
-    req: axum::extract::Request,
-) -> Response {
-    let headers = req.headers();
-    let client_ip = headers
-        .get("cf-connecting-ip")
-        .or_else(|| headers.get("x-real-ip"))
-        .or_else(|| headers.get("x-forwarded-for"))
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
-
-    let now = Instant::now();
-    let mut limiter = state.auth_rate_limiter.lock().await;
-    
-    limiter.retain(|_, w| {
-        w.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
-        !w.is_empty()
-    });
-
-    let window = limiter.entry(client_ip).or_default();
-    if window.len() >= 10 {
-        drop(limiter);
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            [(header::RETRY_AFTER, "60")],
-            "Too many requests",
-        )
-            .into_response();
-    }
-    window.push(now);
-    drop(limiter);
-
-    let security_config = if cfg!(debug_assertions) {
-        crate::config::load_security_config()
-    } else {
-        state.security_config.clone()
-    };
-    Json(AuthConfigResponse {
-        auth_ext_secq: security_config.auth_ext_secq.unwrap_or(false),
-        auth_ext_cftrace: security_config.auth_ext_cftrace.unwrap_or(false),
-        cftrace_url: security_config.cftrace_url.clone(),
-        security_questions: security_config.admin_security_questions.clone(),
-    })
-    .into_response()
 }

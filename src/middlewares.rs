@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::{
     extract::{Request, State},
@@ -105,6 +106,32 @@ pub async fn admin_auth_middleware(
     let user_agent = headers.get("user-agent")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("Unknown User-Agent");
+
+    // Rate limiting: 5 attempts per 60 seconds per IP
+    {
+        let now = Instant::now();
+        let mut limiter = state.auth_rate_limiter.lock().await;
+        limiter.retain(|_, w| {
+            w.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
+            !w.is_empty()
+        });
+        let window = limiter.entry(client_ip.to_string()).or_default();
+        if window.len() >= 5 {
+            drop(limiter);
+            warn!(
+                "Admin rate limit exceeded for IP: {}, Path: {}",
+                client_ip,
+                req.uri().path()
+            );
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, "60")],
+                "Too many requests",
+            )
+                .into_response();
+        }
+        window.push(now);
+    }
 
     let security_config = if cfg!(debug_assertions) {
         crate::config::load_security_config()

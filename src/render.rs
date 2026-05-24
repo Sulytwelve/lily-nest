@@ -101,7 +101,9 @@ pub fn render_index() -> String {
 
 pub fn sanitize_url(url: &str) -> &str {
     let url = url.trim();
-    if url.starts_with("http://") || url.starts_with("https://") || url.starts_with('/') {
+    if (url.starts_with("http://") || url.starts_with("https://"))
+        || (url.starts_with('/') && !url.starts_with("//"))
+    {
         url
     } else {
         "#projects"

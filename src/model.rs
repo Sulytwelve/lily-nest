@@ -187,14 +187,6 @@ pub struct SaveConfigRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AuthConfigResponse {
-    pub auth_ext_secq: bool,
-    pub auth_ext_cftrace: bool,
-    pub cftrace_url: Option<String>,
-    pub security_questions: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct SiteConfig {
     pub index_title: String,

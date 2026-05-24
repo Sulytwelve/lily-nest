@@ -129,5 +129,9 @@ lily-nest/
 - 项目部署于 Cloudflare，开放 8443（HTTPS）和 8880（HTTP dev）端口
 - 仅供个人学习/展示用途，欢迎二次开发
 
+## 当前版本
+- **站点版本（site.toml）**：`0.2.3-beta`
+- **内核版本（Cargo.toml）**：`0.2.3`
+
 ## License
 MIT
