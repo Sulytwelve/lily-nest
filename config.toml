@@ -17,7 +17,7 @@ gzip_level = 9
 #     "https://cloudflareinsights.com",
 # ]
 allow_origins = ["*"]
-admin_password = "CHANGE_YOUR_ADMIN_PSWD"
+admin_password = "CHANGE_YOUR_PASSWORD"
 admin_security_answers = ["default1", "default2", "default3"]
 admin_security_questions = ["default1", "default2", "default3"]
 auth_ext_secq = true

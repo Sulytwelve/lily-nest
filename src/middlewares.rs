@@ -143,10 +143,12 @@ pub async fn admin_auth_middleware(
 
     let is_authenticated = match &actual_password {
         None => {
+            error!("[Security] Admin login attempt rejected: Admin password not configured on server.");
             failure_reason = Some("Admin password not configured on server".to_string());
             false
         }
-        Some(a) if a.is_empty() || a == "CHANGE_YOUR_PASSWORD" || a == "CHANGE_YOUR_ADMIN_PSWD" => {
+        Some(a) if a.is_empty() || a == "CHANGE_YOUR_PASSWORD" => {
+            error!("[Security] Admin login attempt rejected: The default placeholder password ('CHANGE_YOUR_PASSWORD') is in use. Please change your admin_password in config.toml!");
             failure_reason = Some("Admin password is uninitialized or uses default placeholder, login disallowed".to_string());
             false
         }
