@@ -141,82 +141,91 @@ pub async fn admin_auth_middleware(
         }
     }
 
-    let is_authenticated = match (&provided_password, &actual_password) {
-        (Some(p), Some(a)) if p == a => {
-            let secq_ok = if auth_ext_secq {
-                if let Some(answers) = actual_answers {
-                    match (provided_index, &provided_answer) {
-                        (Some(idx), Some(ans)) if idx < answers.len() => {
-                            let correct = &answers[idx] == ans;
-                            if !correct {
-                                failure_reason = Some(format!("Security question answer incorrect (Question index: {})", idx));
+    let is_authenticated = match &actual_password {
+        None => {
+            failure_reason = Some("Admin password not configured on server".to_string());
+            false
+        }
+        Some(a) if a.is_empty() || a == "CHANGE_YOUR_PASSWORD" || a == "CHANGE_YOUR_ADMIN_PSWD" => {
+            failure_reason = Some("Admin password is uninitialized or uses default placeholder, login disallowed".to_string());
+            false
+        }
+        Some(a) => {
+            match &provided_password {
+                Some(p) if p == a => {
+                    let secq_ok = if auth_ext_secq {
+                        if let Some(answers) = actual_answers {
+                            match (provided_index, &provided_answer) {
+                                (Some(idx), Some(ans)) if idx < answers.len() => {
+                                    let correct = &answers[idx] == ans;
+                                    if !correct {
+                                        failure_reason = Some(format!("Security question answer incorrect (Question index: {})", idx));
+                                    }
+                                    correct
+                                }
+                                _ => {
+                                    failure_reason = Some("Security question index or answer missing/invalid".to_string());
+                                    false
+                                }
                             }
-                            correct
-                        }
-                        _ => {
-                            failure_reason = Some("Security question index or answer missing/invalid".to_string());
+                        } else {
+                            failure_reason = Some("Security question answers not configured in backend".to_string());
                             false
                         }
-                    }
-                } else {
-                    failure_reason = Some("Security question answers not configured in backend".to_string());
+                    } else {
+                        true
+                    };
+
+                    let trace_warp_ok = if secq_ok && auth_ext_cftrace {
+                        let loc_ok = match loc {
+                            Some(ref l) => {
+                                let ok = allowed_locs.contains(l);
+                                if !ok {
+                                    failure_reason = Some(format!("CF Trace: location '{}' not allowed (allowed: {:?})", l, allowed_locs));
+                                }
+                                ok
+                            }
+                            None => {
+                                failure_reason = Some("CF Trace: location 'loc' missing in trace".to_string());
+                                false
+                            }
+                        };
+
+                        let warp_on = if warp.as_deref() == Some("on") {
+                            true
+                        } else {
+                            if loc_ok {
+                                failure_reason = Some(format!("CF Trace: WARP is off (warp={:?})", warp));
+                            }
+                            false
+                        };
+
+                        let gateway_on = if gateway.as_deref() == Some("on") {
+                            true
+                        } else {
+                            if loc_ok && warp_on {
+                                failure_reason = Some(format!("CF Trace: Gateway is off (gateway={:?})", gateway));
+                            }
+                            // false
+                            false
+                        };
+
+                        loc_ok && warp_on && gateway_on
+                    } else {
+                        true
+                    };
+
+                    secq_ok && trace_warp_ok
+                }
+                Some(_) => {
+                    failure_reason = Some("Password incorrect".to_string());
                     false
                 }
-            } else {
-                true
-            };
-
-            let trace_warp_ok = if secq_ok && auth_ext_cftrace {
-                let loc_ok = match loc {
-                    Some(ref l) => {
-                        let ok = allowed_locs.contains(l);
-                        if !ok {
-                            failure_reason = Some(format!("CF Trace: location '{}' not allowed (allowed: {:?})", l, allowed_locs));
-                        }
-                        ok
-                    }
-                    None => {
-                        failure_reason = Some("CF Trace: location 'loc' missing in trace".to_string());
-                        false
-                    }
-                };
-
-                let warp_on = if warp.as_deref() == Some("on") {
-                    true
-                } else {
-                    if loc_ok {
-                        failure_reason = Some(format!("CF Trace: WARP is off (warp={:?})", warp));
-                    }
+                None => {
+                    failure_reason = Some("No password provided".to_string());
                     false
-                };
-
-                let gateway_on = if gateway.as_deref() == Some("on") {
-                    true
-                } else {
-                    if loc_ok && warp_on {
-                        failure_reason = Some(format!("CF Trace: Gateway is off (gateway={:?})", gateway));
-                    }
-                    false
-                };
-
-                loc_ok && warp_on && gateway_on
-            } else {
-                true
-            };
-
-            secq_ok && trace_warp_ok
-        }
-        (Some(_), Some(_)) => {
-            failure_reason = Some("Password incorrect".to_string());
-            false
-        }
-        (Some(_), None) => {
-            failure_reason = Some("No password configured on server".to_string());
-            false
-        }
-        _ => {
-            failure_reason = Some("No password provided".to_string());
-            false
+                }
+            }
         }
     };
 
@@ -231,10 +240,6 @@ pub async fn admin_auth_middleware(
         );
         next.run(req).await
     } else {
-        if req.uri().path() == "/admin" && req.method() == Method::GET && provided_password.is_none() {
-            return next.run(req).await;
-        }
-
         warn!(
             "Admin authentication failed! Reason: {}, IP: {}, Geolocation: {}, User-Agent: {}, Path: {}",
             failure_reason.unwrap_or_else(|| "Unknown failure".to_string()),

@@ -20,10 +20,9 @@ allow_origins = ["*"]
 admin_password = "CHANGE_YOUR_ADMIN_PSWD"
 admin_security_answers = ["default1", "default2", "default3"]
 admin_security_questions = ["default1", "default2", "default3"]
-auth-ext-secq = true
-auth-ext-warp = false
-auth-ext-cftrace = false
-cftrace-url = "example.com"
+auth_ext_secq = true
+auth_ext_cftrace = false
+cftrace_url = "example.com"
 allowed_locs = ["CN", "US"]
 csp_policy = """
 default-src 'self'; \

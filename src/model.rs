@@ -104,13 +104,8 @@ pub struct SecurityConfig {
     pub admin_password: Option<String>,
     pub admin_security_answers: Option<Vec<String>>,
     pub admin_security_questions: Option<Vec<String>>,
-    #[serde(rename = "auth-ext-secq")]
     pub auth_ext_secq: Option<bool>,
-    #[serde(rename = "auth-ext-warp")]
-    pub auth_ext_warp: Option<bool>,
-    #[serde(rename = "auth-ext-cftrace")]
     pub auth_ext_cftrace: Option<bool>,
-    #[serde(rename = "cftrace-url")]
     pub cftrace_url: Option<String>,
     pub allowed_locs: Option<Vec<String>>,
 }
@@ -126,14 +121,17 @@ impl Default for SecurityConfig {
                 .into(),
             permissions_policy: "camera=(), microphone=(), geolocation=(), payment=()".into(),
             admin_password: None,
-            admin_security_answers: None,
+            admin_security_answers: Some(vec![
+                "default1".to_string(),
+                "default2".to_string(),
+                "default3".to_string(),
+            ]),
             admin_security_questions: Some(vec![
-                "我的暗恋对象是谁".to_string(),
-                "我喜欢吃什么".to_string(),
-                "我的专业是什么".to_string(),
+                "default1".to_string(),
+                "default2".to_string(),
+                "default3".to_string(),
             ]),
             auth_ext_secq: Some(false),
-            auth_ext_warp: Some(false),
             auth_ext_cftrace: Some(false),
             cftrace_url: Some("https://cloudflare.com/cdn-cgi/trace".to_string()),
             allowed_locs: Some(vec!["CN".to_string()]),
