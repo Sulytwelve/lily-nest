@@ -25,7 +25,9 @@ async fn handler_home_page(
 
     // debug 模式下每次重新渲染，不做缓存
     if cfg!(debug_assertions) {
-        let html = crate::render::render_index();
+        let html = tokio::task::spawn_blocking(crate::render::render_index)
+            .await
+            .unwrap_or_else(|_| String::new());
         let res = (
             [(header::CACHE_CONTROL, "no-cache")],
             Html(html),

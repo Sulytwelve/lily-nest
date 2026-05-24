@@ -57,7 +57,9 @@ async fn get_config(Path(name): Path<String>) -> Result<String, StatusCode> {
     if !editable.contains(&name) {
         return Err(StatusCode::FORBIDDEN);
     }
-    std::fs::read_to_string(&name).map_err(|_| StatusCode::NOT_FOUND)
+    tokio::fs::read_to_string(&name)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)
 }
 
 async fn save_config(
@@ -101,7 +103,9 @@ async fn save_config(
     tokio::fs::write(&name, &payload.content).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     info!("Updated config file on disk asynchronously: {}", name);
 
-    let rendered = crate::render::render_index();
+    let rendered = tokio::task::spawn_blocking(crate::render::render_index)
+        .await
+        .unwrap_or_else(|_| String::new());
     {
         let mut cache = state.html_cache.write().await;
         *cache = rendered;
