@@ -11,28 +11,26 @@ use tower_http::{
 };
 
 pub fn router() -> Router {
+    let assets_config = crate::config::load_assets_config();
+    let mut css_service = ServeDir::new("./static/css");
+    let mut js_service = ServeDir::new("./static/js");
+    let mut fonts_service = ServeDir::new("./static/fonts");
+
+    if assets_config.precompress {
+        css_service = css_service.precompressed_zstd().precompressed_br().precompressed_gzip();
+        js_service = js_service.precompressed_zstd().precompressed_br().precompressed_gzip();
+        fonts_service = fonts_service.precompressed_zstd().precompressed_br().precompressed_gzip();
+    }
+
     let root_files = Router::new()
         .route("/robots.txt", get(serve_robots))
         .route("/BingSiteAuth.xml", get(serve_bing_site_auth))
         .route("/sitemap.xml", get(serve_sitemap))
         .route("/favicon.ico", get(serve_favicon));
 
-    // CSS/JS/Images: 1 day cache + Vary: Accept-Encoding for Cloudflare
     let assets_daily = Router::new()
-        .nest_service(
-            "/css",
-            ServeDir::new("./static/css")
-                .precompressed_zstd()
-                .precompressed_br()
-                .precompressed_gzip(),
-        )
-        .nest_service(
-            "/js",
-            ServeDir::new("./static/js")
-                .precompressed_zstd()
-                .precompressed_br()
-                .precompressed_gzip(),
-        )
+        .nest_service("/css", css_service)
+        .nest_service("/js", js_service)
         .nest_service("/images", ServeDir::new("./static/images"))
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
@@ -43,15 +41,8 @@ pub fn router() -> Router {
             HeaderValue::from_static("Accept-Encoding"),
         ));
 
-    // Fonts: 7 day cache + Vary: Accept-Encoding for Cloudflare
     let assets_weekly = Router::new()
-        .nest_service(
-            "/fonts",
-            ServeDir::new("./static/fonts")
-                .precompressed_zstd()
-                .precompressed_br()
-                .precompressed_gzip(),
-        )
+        .nest_service("/fonts", fonts_service)
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
             HeaderValue::from_static("public, max-age=604800"),
