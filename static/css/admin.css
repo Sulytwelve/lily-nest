@@ -81,4 +81,7 @@ textarea#editor:focus {
         width: 280px;
         flex-shrink: 0;
     }
+    .editor-box {
+        margin-top: calc(0.75rem + 8px);
+    }
 }
