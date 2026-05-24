@@ -34,10 +34,11 @@ async fn handler_home_page(
         return res;
     }
 
-    // release: 检查 If-Modified-Since
     if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE) {
         if let Some(ims_time) = ims.to_str().ok().and_then(|v| httpdate::parse_http_date(v).ok()) {
-            if ims_time >= started_at {
+            let ims_secs = ims_time.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            let started_at_secs = started_at.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            if ims_secs >= started_at_secs {
                 let mut res = Response::new(axum::body::Body::empty());
                 *res.status_mut() = StatusCode::NOT_MODIFIED;
                 res.headers_mut().insert(

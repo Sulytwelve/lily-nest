@@ -69,9 +69,32 @@ async fn save_config(
     if !editable.contains(&name) {
         return Err(StatusCode::FORBIDDEN);
     }
-    
     if let Err(e) = toml::from_str::<toml::Value>(&payload.content) {
-        error!("Invalid TOML for {}: {}", name, e);
+        error!("Invalid TOML syntax for {}: {}", name, e);
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let schema_ok = match name.as_str() {
+        "site.toml" => {
+            #[derive(serde::Deserialize)]
+            struct SiteWrapper {
+                profile: crate::model::HomeProfile,
+                site: crate::model::SiteConfig,
+            }
+            toml::from_str::<SiteWrapper>(&payload.content)
+                .map(|w| {
+                    let _ = w.profile;
+                    let _ = w.site;
+                })
+                .is_ok()
+        }
+        "projects.toml" => toml::from_str::<crate::model::ProjectList>(&payload.content).is_ok(),
+        "about.toml" => toml::from_str::<crate::model::AboutList>(&payload.content).is_ok(),
+        _ => true,
+    };
+
+    if !schema_ok {
+        error!("Invalid schema for {}", name);
         return Err(StatusCode::BAD_REQUEST);
     }
 

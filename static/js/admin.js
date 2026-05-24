@@ -100,21 +100,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function fetchTrace() {
         try {
-            // 提取配置的 cftraceUrl 中的主机名部分 (Host)
-            let traceHost = cftraceUrl.trim().toLowerCase();
-            if (traceHost.startsWith('http://')) traceHost = traceHost.substring(7);
-            else if (traceHost.startsWith('https://')) traceHost = traceHost.substring(8);
-            traceHost = traceHost.split('/')[0]; // 仅保留域名部分
+            let url = cftraceUrl;
+            if (cftraceUrl.startsWith('/')) {
+                url = cftraceUrl;
+            } else {
+                let traceHost = cftraceUrl.trim().toLowerCase();
+                if (traceHost.startsWith('http://')) traceHost = traceHost.substring(7);
+                else if (traceHost.startsWith('https://')) traceHost = traceHost.substring(8);
+                traceHost = traceHost.split('/')[0];
 
-            const currentHost = window.location.hostname.toLowerCase();
+                let traceHostname = traceHost;
+                if (traceHost.startsWith('[')) {
+                    const idx = traceHost.indexOf(']');
+                    if (idx !== -1) traceHostname = traceHost.substring(0, idx + 1);
+                } else {
+                    traceHostname = traceHost.split(':')[0];
+                }
 
-            // 如果当前域名与配置域名属于同个 Apex 域名（如访问 www.example.com，配置为 example.com）
-            // 直接采用相对路径 "/cdn-cgi/trace"，利用 'self' 特性完美绕过 CSP 子域名跨域限制！
-            const useRelative = currentHost === traceHost || 
-                                currentHost.endsWith('.' + traceHost) || 
-                                traceHost.endsWith('.' + currentHost);
+                const currentHost = window.location.hostname.toLowerCase();
+                const normalize = dom => dom.startsWith('www.') ? dom.substring(4) : dom;
+                const useRelative = normalize(currentHost) === normalize(traceHostname);
 
-            const url = useRelative ? '/cdn-cgi/trace' : (cftraceUrl.startsWith('http') ? cftraceUrl : `https://${cftraceUrl}`);
+                url = useRelative ? '/cdn-cgi/trace' : (cftraceUrl.startsWith('http') ? cftraceUrl : `https://${cftraceUrl}`);
+            }
             
             const res = await fetch(url);
             if (res.ok) {

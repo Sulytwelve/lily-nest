@@ -125,12 +125,14 @@ pub async fn admin_auth_middleware(
     let mut gateway = None;
     let mut trace_ip = None;
     let mut trace_uag = None;
+    let mut trace_host = None;
 
     for line in cf_trace.lines() {
         if let Some((key, value)) = line.split_once('=') {
             let key = key.trim();
             let value = value.trim();
             match key {
+                "h" => trace_host = Some(value.to_string()),
                 "loc" => loc = Some(value.to_string()),
                 "warp" => warp = Some(value.to_string()),
                 "gateway" => gateway = Some(value.to_string()),
@@ -138,6 +140,33 @@ pub async fn admin_auth_middleware(
                 "uag" => trace_uag = Some(value.to_string()),
                 _ => {}
             }
+        }
+    }
+
+    let request_host = headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if let Some(ref th) = trace_host {
+        let clean_host = |h: &str| -> String {
+            let h = h.trim();
+            let without_port = if h.starts_with('[') {
+                if let Some(end_idx) = h.find(']') {
+                    &h[..=end_idx]
+                } else {
+                    h
+                }
+            } else {
+                h.split(':').next().unwrap_or(h)
+            };
+            without_port.strip_prefix("www.").unwrap_or(without_port).to_string()
+        };
+
+        if clean_host(th) != clean_host(request_host) {
+            warn!("[Security] Trace host '{}' does not match request host '{}'", th, request_host);
+        }
+    }
+
+    if let Some(ref tip) = trace_ip {
+        if tip != client_ip {
+            warn!("[Security] Trace IP '{}' does not match CF-Connecting-IP '{}'", tip, client_ip);
         }
     }
 
