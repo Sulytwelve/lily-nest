@@ -29,7 +29,8 @@
 - 静态资源服务（图片、CSS、JS、robots.txt、sitemap.xml 等）
 - 静态资源预压缩（Gzip、Brotli、Zstd）
 - 深色主题跟随系统（纯 CSS，无 JS 闪烁）
-- HTML 页面缓存（release 模式，5 分钟）
+- HTML 页面缓存（release 模式，5 分钟），支持 If-Modified-Since → 304
+- 静态资源支持 Last-Modified + 304 条件请求，CDN友好
 - HTTP 安全头（CSP、HSTS、X-Frame-Options、Permissions-Policy 等）
 - 安全配置加载增强：release 模式缓存 security 配置，debug 模式仍会热加载；非法 origin 会跳过并记录错误日志
 - release 模式强制 HTTPS，无证书直接拒绝启动
@@ -51,17 +52,17 @@ lily-nest/
 │   ├── main.rs               # 应用入口
 │   ├── app.rs                # 路由编织与全局中间件
 │   ├── state.rs              # 全局共享状态 AppState
-│   ├── admin.rs              # 后台管理全部逻辑（路由、控制器、鉴权）
+│   ├── routes/
+│   │   ├── mod.rs            # 路由模块定义
+│   │   ├── home.rs           # 首页路由（含 304 支持）
+│   │   ├── api.rs            # 公开 RESTful API 路由（含 admin auth 中间件）
+│   │   ├── admin.rs           # 后台管理页面路由
+│   │   └── static_assets.rs  # 静态资源服务路由（含 Last-Modified + 304）
 │   ├── render.rs             # 纯 HTML 渲染逻辑与占位符替换
 │   ├── middlewares.rs        # 全局 HTTP 中间件（CORS 与安全头）
 │   ├── config.rs             # 配置文件解析加载
 │   ├── model.rs              # 数据模型定义
 │   ├── compressor.rs         # 静态资源预压缩工具
-│   └── routes/
-│       ├── mod.rs            # 路由模块定义
-│       ├── home.rs           # 首页路由
-│       ├── api.rs            # 公开 RESTful API 路由
-│       └── static_assets.rs  # 静态资源服务路由
 ├── static/
 │   ├── css/
 │   │   ├── admin.css         # 后台自定义样式
@@ -122,7 +123,7 @@ lily-nest/
 ## 亮点与注意事项
 - debug 模式每次请求重新渲染页面，方便开发调试
 - release 模式使用内存缓存，首页渲染结果复用（5 分钟 Cache-Control）
-- 静态资源预压缩（默认关闭）：在 `config.toml` 的 `[assets]` 中设置 `enable_precompression = true` 以开启，支持 Gzip、Brotli 和 Zstd 压缩，自动检测文件更新并重新压缩
+- 静态资源预压缩（默认关闭）：在 `config.toml` 的 `[assets]` 中设置 `precompress = true` 以开启，支持 Gzip、Brotli 和 Zstd 压缩，自动检测文件更新并重新压缩
 - 深色主题完全由 CSS `@media (prefers-color-scheme: dark)` 驱动，无 JS 依赖，无闪烁
 - 前端资源基于 Material Design 3 规范，使用 `@material/web` 组件库本地构建
 - 项目部署于 Cloudflare，开放 8443（HTTPS）和 8880（HTTP dev）端口

@@ -26,7 +26,7 @@ async fn main() {
 
     // 预压缩资源文件
     let assets_config = config::load_assets_config();
-    if assets_config.enable_precompression {
+    if assets_config.precompress {
         compressor::ensure_precompressed_assets(&assets_config);
     }
 

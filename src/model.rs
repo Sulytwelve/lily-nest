@@ -142,7 +142,7 @@ impl Default for SecurityConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct AssetsConfig {
-    pub enable_precompression: bool,
+    pub precompress: bool,
     pub assets_dirs: Vec<String>,
     pub target_exts: Vec<String>,
     pub compression_types: Vec<String>,
@@ -154,7 +154,7 @@ pub struct AssetsConfig {
 impl Default for AssetsConfig {
     fn default() -> Self {
         Self {
-            enable_precompression: false,
+            precompress: false,
             assets_dirs: vec![
                 "./static/css".to_string(),
                 "./static/js".to_string(),
