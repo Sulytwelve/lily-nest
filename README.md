@@ -77,6 +77,7 @@ lily-nest/
 项目内置了一个基于 Material Design 3 的管理后台，允许管理员直接在浏览器中修改站点内容：
 - **安全验证**：通过请求头 `X-Admin-Password` 进行验证。
 - **密码设置**：在 `config.toml` 的 `[security]` 块中设置 `admin_password`。
+- **密码强制锁定**：若 `admin_password` 未设置、为空或保留默认的 `"CHANGE_YOUR_PASSWORD"`，系统将全面禁用登录功能并在服务器日志中输出 `error!` 级别的安全警告，强制保障管理权限不被任意滥用。
 - **文件限制**：仅允许编辑内容相关的 `.toml` 文件，自动排除 `config.toml` 和 `Cargo.toml` 以保系统安全。
 
 > **安全提示**：在 Debug 模式（HTTP）下，密码以明文传输，仅建议在本地开发环境使用。在生产环境（Release 模式）下，必须配置 HTTPS 以确保传输加密。
@@ -116,6 +117,7 @@ lily-nest/
 - HTTP 安全响应头：CSP、HSTS、X-Content-Type-Options、X-Frame-Options、Referrer-Policy、Permissions-Policy
 - 安全配置解析错误会记录为错误日志；release 模式使用缓存的 security config，debug 模式支持热加载
 - release 模式强制 TLS，不支持 HTTP 回退
+- 默认密码安全锁定：强制过滤并禁用未设置、为空或为默认占位符 `"CHANGE_YOUR_PASSWORD"` 的管理员密码，并在发生登录尝试时在服务器控制台抛出 `error!` 级别警报日志，防止站点被爆破
 
 ## 亮点与注意事项
 - debug 模式每次请求重新渲染页面，方便开发调试
