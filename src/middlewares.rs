@@ -170,33 +170,6 @@ pub async fn admin_auth_middleware(
         }
     }
 
-    let request_host = headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("");
-    if let Some(ref th) = trace_host {
-        let clean_host = |h: &str| -> String {
-            let h = h.trim();
-            let without_port = if h.starts_with('[') {
-                if let Some(end_idx) = h.find(']') {
-                    &h[..=end_idx]
-                } else {
-                    h
-                }
-            } else {
-                h.split(':').next().unwrap_or(h)
-            };
-            without_port.strip_prefix("www.").unwrap_or(without_port).to_string()
-        };
-
-        if clean_host(th) != clean_host(request_host) {
-            warn!("[Security] Trace host '{}' does not match request host '{}'", th, request_host);
-        }
-    }
-
-    if let Some(ref tip) = trace_ip {
-        if tip != client_ip {
-            warn!("[Security] Trace IP '{}' does not match CF-Connecting-IP '{}'", tip, client_ip);
-        }
-    }
-
     let is_authenticated = match &actual_password {
         None => {
             error!("[Security] Admin login attempt rejected: Admin password not configured on server.");
@@ -239,11 +212,13 @@ pub async fn admin_auth_middleware(
                             Some(ref l) => {
                                 let ok = allowed_locs.contains(l);
                                 if !ok {
+                                    warn!("CF Trace: location '{}' not allowed (allowed: {:?})", l, allowed_locs);
                                     failure_reason = Some(format!("CF Trace: location '{}' not allowed (allowed: {:?})", l, allowed_locs));
                                 }
                                 ok
                             }
                             None => {
+                                warn!("CF Trace: location 'loc' missing in trace");
                                 failure_reason = Some("CF Trace: location 'loc' missing in trace".to_string());
                                 false
                             }
@@ -253,6 +228,7 @@ pub async fn admin_auth_middleware(
                             true
                         } else {
                             if loc_ok {
+                                warn!("CF Trace: WARP is off (warp={:?})", warp);
                                 failure_reason = Some(format!("CF Trace: WARP is off (warp={:?})", warp));
                             }
                             false
@@ -262,13 +238,63 @@ pub async fn admin_auth_middleware(
                             true
                         } else {
                             if loc_ok && warp_on {
+                                warn!("CF Trace: Gateway is off (gateway={:?})", gateway);
                                 failure_reason = Some(format!("CF Trace: Gateway is off (gateway={:?})", gateway));
                             }
-                            // false
                             false
                         };
 
-                        loc_ok && warp_on && gateway_on
+                        let request_host = headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("");
+
+                        let clean_host = |h: &str| -> String {
+                            let h = h.trim();
+                            let without_port = if h.starts_with('[') {
+                                if let Some(end_idx) = h.find(']') {
+                                    &h[..=end_idx]
+                                } else {
+                                    h
+                                }
+                            } else {
+                                h.split(':').next().unwrap_or(h)
+                            };
+                            without_port.strip_prefix("www.").unwrap_or(without_port).to_string()
+                        };
+
+                        let trace_host_ok = match trace_host {
+                            Some(ref th) => {
+                                if clean_host(th) != clean_host(request_host) {
+                                    warn!("[Security] Trace host '{}' does not match request host '{}'", th, request_host);
+                                    failure_reason = Some(format!("CF Trace: host '{}' does not match request host '{}'", th, request_host));
+                                    false
+                                } else {
+                                    true
+                                }
+                            }
+                            None => {
+                                warn!("CF Trace: host 'h' missing in trace");
+                                failure_reason = Some("CF Trace: host 'h' missing in trace".to_string());
+                                false
+                            }
+                        };
+
+                        let trace_ip_ok = match trace_ip {
+                            Some(ref tip) => {
+                                if tip != client_ip {
+                                    warn!("[Security] Trace IP '{}' does not match CF-Connecting-IP '{}'", tip, client_ip);
+                                    failure_reason = Some(format!("CF Trace: IP '{}' does not match client IP '{}'", tip, client_ip));
+                                    false
+                                } else {
+                                    true
+                                }
+                            }
+                            None => {
+                                warn!("CF Trace: IP 'ip' missing in trace");
+                                failure_reason = Some("CF Trace: IP 'ip' missing in trace".to_string());
+                                false
+                            }
+                        };
+
+                        loc_ok && warp_on && gateway_on && trace_host_ok && trace_ip_ok
                     } else {
                         true
                     };

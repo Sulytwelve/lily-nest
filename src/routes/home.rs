@@ -27,7 +27,10 @@ async fn handler_home_page(
     if cfg!(debug_assertions) {
         let html = tokio::task::spawn_blocking(crate::render::render_index)
             .await
-            .unwrap_or_else(|_| String::new());
+            .unwrap_or_else(|e| {
+                tracing::error!("render_index panicked in spawn_blocking: {e}");
+                String::new()
+            });
         let res = (
             [(header::CACHE_CONTROL, "no-cache")],
             Html(html),

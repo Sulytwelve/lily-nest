@@ -33,5 +33,7 @@ async fn admin_page_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
         "security_questions": security_config.admin_security_questions,
     });
 
-    Html(html.replace("{{auth_config_json}}", &auth_config.to_string()))
+    let auth_config_str = auth_config.to_string().replace("</", "<\\/");
+
+    Html(html.replace("{{auth_config_json}}", &auth_config_str))
 }

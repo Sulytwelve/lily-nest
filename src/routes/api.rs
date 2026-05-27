@@ -101,7 +101,10 @@ async fn save_config(
 
     let rendered = tokio::task::spawn_blocking(crate::render::render_index)
         .await
-        .unwrap_or_else(|_| String::new());
+        .unwrap_or_else(|e| {
+            error!("render_index panicked in spawn_blocking (save_config): {e}");
+            String::new()
+        });
     {
         let mut cache = state.html_cache.write().await;
         *cache = rendered;
