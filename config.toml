@@ -1,3 +1,7 @@
+[server]
+http_port = 8880
+https_port = 8443
+
 [tls]
 # cert_path = "./certs/example.com.pem"
 # key_path  = "./certs/example.com.key"

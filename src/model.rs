@@ -91,6 +91,21 @@ impl Default for AboutList {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ServerConfig {
+    pub http_port: u16,
+    pub https_port: u16,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            http_port: 8880,
+            https_port: 8443,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TlsConfig {
     pub cert_path: String,
     pub key_path: String,

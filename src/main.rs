@@ -33,9 +33,12 @@ async fn main() {
     // 构建应用（路由、静态资源等）
     let app = app::build_app();
 
+    let server_config = config::load_server_config();
+
     if cfg!(debug_assertions) {
-        // debug：直接 HTTP 8880
-        let addr: SocketAddr = "[::]:8880".parse().expect("解析地址失败");
+        // debug：直接 HTTP port
+        let addr_str = format!("[::]:{}", server_config.http_port);
+        let addr: SocketAddr = addr_str.parse().expect("解析地址失败");
         info!(">> 梨窝 已启动 (dev): http://{}", addr);
         let listener = tokio::net::TcpListener::bind(addr)
             .await
@@ -60,7 +63,8 @@ async fn main() {
             .await
             .expect("加载 TLS 证书失败");
 
-        let addr: SocketAddr = "[::]:8443".parse().expect("解析地址失败");
+        let addr_str = format!("[::]:{}", server_config.https_port);
+        let addr: SocketAddr = addr_str.parse().expect("解析地址失败");
         info!(">> 梨窝 已启动: https://{}", addr);
         axum_server::bind_rustls(addr, config)
             .serve(app.into_make_service())

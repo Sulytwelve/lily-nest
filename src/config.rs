@@ -1,4 +1,4 @@
-use crate::model::{AboutList, AssetsConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig};
+use crate::model::{AboutList, AssetsConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig, ServerConfig};
 use serde::Deserialize;
 use std::fs;
 use tracing::error;
@@ -83,6 +83,24 @@ pub fn load_about_items() -> AboutList {
             AboutList::default()
         }
     }
+}
+
+pub fn load_server_config() -> ServerConfig {
+    let content = std::fs::read_to_string("config.toml").unwrap_or_default();
+
+    #[derive(Deserialize)]
+    struct Wrapper {
+        server: ServerConfig,
+    }
+
+    toml::from_str::<Wrapper>(&content)
+        .map(|w| w.server)
+        .unwrap_or_else(|e| {
+            if !content.is_empty() {
+                error!("警告: server 配置解析失败 ({}), 使用默认服务器配置", e);
+            }
+            ServerConfig::default()
+        })
 }
 
 pub fn load_tls_config() -> Option<TlsConfig> {

@@ -9,9 +9,9 @@
 > [!TIP]
 > 以下为规划中的架构升级路线，目前仅作为技术路线图记录，不作为立即执行的任务。
 
-- [ ] **⚙️ 解耦服务器配置：端口号分离（优先规划）**
-  - [ ] 在 `config.toml` 中新增 `[server]` 配置块，支持 `http_port` 和 `https_port` 字段。
-  - [ ] 重构 `src/main.rs`，将硬编码的 `8880` (Debug) 和 `8443` (Release) 端口改为从配置中动态加载，使服务支持零编译一键更换运行端口。
+- [x] **⚙️ 解耦服务器配置：端口号分离（已完成）**
+  - [x] 在 `config.toml` 中新增 `[server]` 配置块，支持 `http_port` 和 `https_port` 字段。
+  - [x] 重构 `src/main.rs`，将硬编码的 `8880` (Debug) 和 `8443` (Release) 端口改为从配置中动态加载，使服务支持零编译一键更换运行端口。
   
 - [ ] **🎨 解耦呈现逻辑：分离 HTML 渲染片段**
   - [ ] 创建 `templates/project_item.html` 和 `templates/about_item.html` 独立骨架文件。
@@ -22,7 +22,13 @@
 
 ## 🏆 已完成的里程碑 (Milestones & Changelog)
 
-### 🔴 v0.2.3 安全与架构加固版 (当前版本)
+### 🔴 v0.2.4 配置解耦与端口分离版 (当前版本)
+- [x] **服务器配置解耦 (Server Configuration Decoupling)**
+  - [x] 将 HTTP 和 HTTPS 的运行端口彻底从代码硬编码中解耦，移入 `config.toml` 最顶部的 `[server]` 段。
+  - [x] 新增 `ServerConfig` 模型和动态解析加载逻辑，支持免编译直接配置服务运行端口。
+  - [x] 升级 `Cargo.toml` 版本至 `0.2.4`，升级 `site.toml` 页面版本至 `0.2.4-beta`。
+
+### 🔴 v0.2.3 安全与架构加固版
 - [x] **安全性加固 (Security Hardening)**
   - [x] 在 `src/routes/admin.rs` 中将配置 JSON 序列化后的 `</` 替换为 `<\/`，彻底预防潜在的闭合脚本标签 XSS 注入。
   - [x] 将全局 `cors` 中间件层精确下沉至 `/api/v1/*` 接口路由，防止首页 `/` 与 `/admin` 页面被注入 `Vary: Origin` 头部，为 Cloudflare 边缘缓存扫清协议障碍。
