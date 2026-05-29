@@ -127,14 +127,15 @@ lily-nest/
 - 深色主题完全由 CSS `@media (prefers-color-scheme: dark)` 驱动，无 JS 依赖，无闪烁
 - 前端资源基于 Material Design 3 规范，使用 `@material/web` 组件库本地构建
 - 项目部署于 Cloudflare，开放 8443（HTTPS）和 8880（HTTP dev）端口
-  > [!WARNING]
   > **关于 Cloudflare 边缘缓存的重要提示：**  
-  > Cloudflare 默认对部分非标准端口（包括 `8443`、`8880` 等，注意 `8080` 虽为非标端口但支持缓存）**硬性禁用了边缘缓存**（Free/Pro 计划会一直返回 `cf-cache-status: DYNAMIC`）。如果您需要启用完整的 CDN 边缘缓存（实现 `HIT`），必须使用标准端口（`443` / `80`）进行回源代理，或在受支持的硬件架构上配置 Cloudflare Tunnel (`cloudflared`) 进行内网隧道穿透。
+  > Cloudflare 默认对部分非标准端口（包括 `8443`、`8880` 等，注意 `8080` 虽为非标端口但支持缓存）**硬性禁用了边缘缓存**（Free/Pro 计划会一直返回 `cf-cache-status: DYNAMIC`）。  
+  >   
+  > **🎉 缓存难题解决：** 在版本 [`3ad622c`](https://github.com/Sulytwelve/lily-nest/commit/3ad622c710db8421868019bd183f9c6d376510f8) 之后，梨梨（Sulytwelve）已将原有的 `8443` 非标端口回源方案改为了 **Cloudflare Tunnel (`cloudflared`)** 方案，将 `lily-nest` 的端口设置为 `https_port = 443` 并允许防火墙 `443` 端口出站。在完成此次变更后，网站已成功实现了所有静态资源（如 JS/CSS 等）在 Cloudflare 全球边缘节点的 100% `HIT`（缓存命中）！
 - 仅供个人学习/展示用途，欢迎二次开发
 
 ## 当前版本
-- **站点版本（site.toml）**：`0.2.3-beta`
-- **内核版本（Cargo.toml）**：`0.2.3`
+- **站点版本（site.toml）**：`0.2.4-beta`
+- **内核版本（Cargo.toml）**：`0.2.4`
 
 ## License
 MIT
