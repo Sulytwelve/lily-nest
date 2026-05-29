@@ -244,7 +244,12 @@ pub async fn admin_auth_middleware(
                             false
                         };
 
-                        let request_host = headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("");
+                        let request_host = headers
+                        .get("host")
+                        .or_else(|| headers.get("x-forwarded-host"))
+                        .and_then(|v| v.to_str().ok())
+                        .or_else(|| req.uri().host())
+                        .unwrap_or("");
 
                         let clean_host = |h: &str| -> String {
                             let h = h.trim();
