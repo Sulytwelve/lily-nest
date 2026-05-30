@@ -29,7 +29,8 @@
 - 静态资源服务（图片、CSS、JS、robots.txt、sitemap.xml 等）
 - 静态资源预压缩（Gzip、Brotli、Zstd）
 - 深色主题跟随系统（纯 CSS，无 JS 闪烁）
-- HTML 页面缓存（release 模式，5 分钟），支持 If-Modified-Since → 304（0.2.5 极致优化：使用 `bytes::Bytes` 实现零分配与零拷贝，预计算并缓存 HTTP 日期 HeaderValue）
+- HTML 页面缓存（release 模式，默认 1 小时，可在 config.toml 自定义），支持 If-Modified-Since → 304（使用 `bytes::Bytes` 实现零分配与零拷贝，预计算并缓存 HTTP 日期 HeaderValue）
+- 静态资源缓存控制：支持根据 config.toml 的 `[assets]` 集中配置 HTML、API、JS/CSS、图片、字体等缓存时间，完美分流与解耦
 - 静态资源支持 Last-Modified + 304 条件请求，CDN 友好
 - HTTP 安全头（CSP、HSTS、X-Frame-Options、Permissions-Policy 等）
 - 安全配置加载增强：release 模式缓存 security 配置，debug 模式仍会热加载；非法 origin 会跳过并记录错误日志
@@ -112,7 +113,7 @@ lily-nest/
 > **注意：** 默认情况下，release 模式下若未配置证书，且未指定 `force-http` 特性时，程序会直接 panic 拒绝启动。
 
 ## 配置说明
-- `config.toml`：TLS 证书路径、`[security]` 安全策略（CORS、CSP、Permissions Policy、管理员密码及双重验证配置）、`[assets]` 预压缩配置（启用开关、目标目录、压缩类型等）
+- `config.toml`：TLS 证书路径、`[security]` 安全策略（CORS、CSP、Permissions Policy、管理员密码等）、`[assets]` 预压缩配置与各类别（HTML、API、JS/CSS、图片、字体等）缓存时长解耦配置
 - `site.toml`：站点配置与展示内容，已拆分为两部分：
   - `[site]`：页面元数据（标题 `index_title` 与 `meta_desc` 元描述信息）
   - `[profile]`：个人主页卡片内容（包括头像、背景、团队成员、自我介绍等）
@@ -142,8 +143,8 @@ lily-nest/
 - 仅供个人学习/展示用途，欢迎二次开发
 
 ## 当前版本
-- **站点版本（site.toml）**：`0.2.5-beta`
-- **内核版本（Cargo.toml）**：`0.2.5`
+- **站点版本（site.toml）**：`0.2.6-beta`
+- **内核版本（Cargo.toml）**：`0.2.6`
 
 ## License
 MIT

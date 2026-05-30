@@ -164,6 +164,12 @@ pub struct AssetsConfig {
     pub zstd_level: i32,
     pub brotli_quality: u32,
     pub gzip_level: u32,
+    pub html_cache_seconds: u32,
+    pub api_cache_seconds: u32,
+    pub js_css_cache_seconds: u32,
+    pub image_cache_seconds: u32,
+    pub font_cache_seconds: u32,
+    pub other_cache_seconds: u32,
 }
 
 impl Default for AssetsConfig {
@@ -187,6 +193,12 @@ impl Default for AssetsConfig {
             zstd_level: 3,
             brotli_quality: 4,
             gzip_level: 8,
+            html_cache_seconds: 3600,
+            api_cache_seconds: 0,
+            js_css_cache_seconds: 86400,
+            image_cache_seconds: 86400,
+            font_cache_seconds: 604800,
+            other_cache_seconds: 3600,
         }
     }
 }

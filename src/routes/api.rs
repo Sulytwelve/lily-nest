@@ -107,7 +107,11 @@ async fn save_config(
         });
     {
         let mut cache = state.html_cache.write().await;
-        *cache = crate::state::HtmlCache::new(std::time::SystemTime::now(), rendered.into());
+        *cache = crate::state::HtmlCache::new(
+            std::time::SystemTime::now(),
+            rendered.into(),
+            state.assets_config.html_cache_seconds,
+        );
     }
 
     info!("In-memory HTML cache and started_at refreshed successfully after saving {}", name);

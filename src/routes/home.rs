@@ -51,7 +51,7 @@ async fn handler_home_page(
                 *res.status_mut() = StatusCode::NOT_MODIFIED;
                 res.headers_mut().insert(
                     header::CACHE_CONTROL,
-                    HeaderValue::from_static("public, max-age=300"),
+                    cache.cache_control.clone(),
                 );
                 return res;
             }
@@ -66,7 +66,7 @@ async fn handler_home_page(
     );
     headers.insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=300"),
+        cache.cache_control,
     );
     headers.insert(
         header::LAST_MODIFIED,

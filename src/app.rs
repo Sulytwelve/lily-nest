@@ -12,12 +12,15 @@ use crate::{
 
 pub fn build_app() -> Router {
     let security_config = load_security_config();
+    let assets_config = crate::config::load_assets_config();
     let state = Arc::new(AppState {
         html_cache: RwLock::new(crate::state::HtmlCache::new(
             SystemTime::now(),
             crate::render::render_index().into(),
+            assets_config.html_cache_seconds,
         )),
         security_config: Arc::new(security_config),
+        assets_config: Arc::new(assets_config),
         auth_rate_limiter: Mutex::new(HashMap::new()),
     });
 

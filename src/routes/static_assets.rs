@@ -28,13 +28,35 @@ pub fn router() -> Router {
         .route("/sitemap.xml", get(serve_sitemap))
         .route("/favicon.ico", get(serve_favicon));
 
-    let assets_daily = Router::new()
+    let js_css_cc = format!("public, max-age={}", assets_config.js_css_cache_seconds);
+    let js_css_cc_val = HeaderValue::try_from(js_css_cc)
+        .unwrap_or_else(|_| HeaderValue::from_static("public, max-age=86400"));
+
+    let image_cc = format!("public, max-age={}", assets_config.image_cache_seconds);
+    let image_cc_val = HeaderValue::try_from(image_cc)
+        .unwrap_or_else(|_| HeaderValue::from_static("public, max-age=86400"));
+
+    let font_cc = format!("public, max-age={}", assets_config.font_cache_seconds);
+    let font_cc_val = HeaderValue::try_from(font_cc)
+        .unwrap_or_else(|_| HeaderValue::from_static("public, max-age=604800"));
+
+    let css_js_router = Router::new()
         .nest_service("/css", css_service)
         .nest_service("/js", js_service)
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            js_css_cc_val,
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::VARY,
+            HeaderValue::from_static("Accept-Encoding"),
+        ));
+
+    let images_router = Router::new()
         .nest_service("/images", ServeDir::new("./static/images"))
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
-            HeaderValue::from_static("public, max-age=86400"),
+            image_cc_val,
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::VARY,
@@ -45,20 +67,23 @@ pub fn router() -> Router {
         .nest_service("/fonts", fonts_service)
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
-            HeaderValue::from_static("public, max-age=604800"),
+            font_cc_val,
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::VARY,
             HeaderValue::from_static("Accept-Encoding"),
         ));
 
-    root_files.merge(assets_daily).merge(assets_weekly)
+    root_files
+        .merge(css_js_router)
+        .merge(images_router)
+        .merge(assets_weekly)
 }
 
 async fn serve_static_file(
     path: &str,
     content_type: &'static str,
-    cache_control: &'static str,
+    cache_control: &str,
     req: Request,
 ) -> Response {
     let metadata = match tokio::fs::metadata(path).await {
@@ -71,6 +96,9 @@ async fn serve_static_file(
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 
+    let cc_val = HeaderValue::try_from(cache_control)
+        .unwrap_or_else(|_| HeaderValue::from_static("public, max-age=3600"));
+
     if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE) {
         if let Some(ims_time) = ims.to_str().ok().and_then(|v| httpdate::parse_http_date(v).ok()) {
             let modified_secs = modified.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -79,7 +107,7 @@ async fn serve_static_file(
                 let mut res = Response::new(axum::body::Body::empty());
                 *res.status_mut() = StatusCode::NOT_MODIFIED;
                 res.headers_mut()
-                    .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache_control));
+                    .insert(header::CACHE_CONTROL, cc_val);
                 return res;
             }
         }
@@ -100,22 +128,30 @@ async fn serve_static_file(
             .unwrap_or(HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT")),
     );
     res.headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache_control));
+        .insert(header::CACHE_CONTROL, cc_val);
     res
 }
 
 async fn serve_robots(req: Request) -> Response {
-    serve_static_file("./static/robots.txt", "text/plain", "public, max-age=3600", req).await
+    let assets_config = crate::config::load_assets_config();
+    let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
+    serve_static_file("./static/robots.txt", "text/plain", &cc, req).await
 }
 
 async fn serve_bing_site_auth(req: Request) -> Response {
-    serve_static_file("./static/BingSiteAuth.xml", "application/xml", "public, max-age=3600", req).await
+    let assets_config = crate::config::load_assets_config();
+    let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
+    serve_static_file("./static/BingSiteAuth.xml", "application/xml", &cc, req).await
 }
 
 async fn serve_sitemap(req: Request) -> Response {
-    serve_static_file("./static/sitemap.xml", "application/xml", "public, max-age=3600", req).await
+    let assets_config = crate::config::load_assets_config();
+    let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
+    serve_static_file("./static/sitemap.xml", "application/xml", &cc, req).await
 }
 
 async fn serve_favicon(req: Request) -> Response {
-    serve_static_file("./static/favicon.ico", "image/x-icon", "public, max-age=3600", req).await
+    let assets_config = crate::config::load_assets_config();
+    let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
+    serve_static_file("./static/favicon.ico", "image/x-icon", &cc, req).await
 }
