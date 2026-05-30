@@ -42,14 +42,14 @@ async fn health_handler() -> Json<HealthResponse> {
 }
 
 async fn list_configs() -> Json<Vec<ConfigFile>> {
-    let configs = get_editable_configs().into_iter()
+    let configs = get_editable_configs().await.into_iter()
         .map(|name| ConfigFile { name })
         .collect();
     Json(configs)
 }
 
 async fn get_config(Path(name): Path<String>) -> Result<String, StatusCode> {
-    let editable = get_editable_configs();
+    let editable = get_editable_configs().await;
     if !editable.contains(&name) {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -63,7 +63,7 @@ async fn save_config(
     Path(name): Path<String>,
     Json(payload): Json<SaveConfigRequest>,
 ) -> Result<StatusCode, StatusCode> {
-    let editable = get_editable_configs();
+    let editable = get_editable_configs().await;
     if !editable.contains(&name) {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -107,13 +107,9 @@ async fn save_config(
         });
     {
         let mut cache = state.html_cache.write().await;
-        *cache = rendered;
+        *cache = crate::state::HtmlCache::new(std::time::SystemTime::now(), rendered.into());
     }
 
-    {
-        let mut started_at = state.started_at.write().await;
-        *started_at = std::time::SystemTime::now();
-    }
     info!("In-memory HTML cache and started_at refreshed successfully after saving {}", name);
 
     Ok(StatusCode::OK)

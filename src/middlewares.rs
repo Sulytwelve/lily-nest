@@ -11,7 +11,7 @@ use axum::{
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info, warn};
 
-use crate::{config::load_security_config, model::SecurityConfig, state::AppState};
+use crate::{model::SecurityConfig, state::AppState};
 
 pub fn build_cors_layer(security_config: &SecurityConfig) -> CorsLayer {
     let cors = CorsLayer::new()
@@ -44,34 +44,43 @@ pub async fn security_headers(
     let mut res = next.run(req).await;
 
     let config = if cfg!(debug_assertions) {
-        load_security_config()
+        std::sync::Arc::new(tokio::task::spawn_blocking(crate::config::load_security_config).await.unwrap_or_else(|e| {
+            tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
+            crate::model::SecurityConfig::default()
+        }))
     } else {
         state.security_config.clone()
     };
 
-    let headers: [(HeaderName, String); 6] = [
-        (header::CONTENT_SECURITY_POLICY, config.csp_policy),
-        (header::X_CONTENT_TYPE_OPTIONS, "nosniff".into()),
-        (
-            header::REFERRER_POLICY,
-            "strict-origin-when-cross-origin".into(),
-        ),
-        (header::X_FRAME_OPTIONS, "DENY".into()),
-        (
-            header::STRICT_TRANSPORT_SECURITY,
-            "max-age=31536000; includeSubDomains".into(),
-        ),
-        (
-            HeaderName::from_static("permissions-policy"),
-            config.permissions_policy,
-        ),
-    ];
-
     let headers_map = res.headers_mut();
-    for (name, value) in headers {
-        if let Ok(v) = HeaderValue::from_str(&value) {
-            headers_map.insert(name, v);
-        }
+
+    // 静态 headers — 零开销
+    headers_map.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers_map.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+    headers_map.insert(
+        header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("DENY"),
+    );
+    headers_map.insert(
+        header::STRICT_TRANSPORT_SECURITY,
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    );
+
+    // 动态 headers — 仅这 2 个需要运行时构建
+    if let Ok(v) = HeaderValue::try_from(config.csp_policy.as_str()) {
+        headers_map.insert(header::CONTENT_SECURITY_POLICY, v);
+    }
+    if let Ok(v) = HeaderValue::try_from(config.permissions_policy.as_str()) {
+        headers_map.insert(
+            HeaderName::from_static("permissions-policy"),
+            v,
+        );
     }
 
     res
@@ -134,7 +143,10 @@ pub async fn admin_auth_middleware(
     }
 
     let security_config = if cfg!(debug_assertions) {
-        crate::config::load_security_config()
+        std::sync::Arc::new(tokio::task::spawn_blocking(crate::config::load_security_config).await.unwrap_or_else(|e| {
+            tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
+            crate::model::SecurityConfig::default()
+        }))
     } else {
         state.security_config.clone()
     };

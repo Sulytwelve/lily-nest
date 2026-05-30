@@ -21,7 +21,10 @@ async fn admin_page_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
         });
 
     let security_config = if cfg!(debug_assertions) {
-        crate::config::load_security_config()
+        std::sync::Arc::new(tokio::task::spawn_blocking(crate::config::load_security_config).await.unwrap_or_else(|e| {
+            tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
+            crate::model::SecurityConfig::default()
+        }))
     } else {
         state.security_config.clone()
     };

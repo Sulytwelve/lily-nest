@@ -13,9 +13,11 @@ use crate::{
 pub fn build_app() -> Router {
     let security_config = load_security_config();
     let state = Arc::new(AppState {
-        html_cache: RwLock::new(crate::render::render_index()),
-        security_config,
-        started_at: RwLock::new(SystemTime::now()),
+        html_cache: RwLock::new(crate::state::HtmlCache::new(
+            SystemTime::now(),
+            crate::render::render_index().into(),
+        )),
+        security_config: Arc::new(security_config),
         auth_rate_limiter: Mutex::new(HashMap::new()),
     });
 

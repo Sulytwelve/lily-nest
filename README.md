@@ -29,8 +29,8 @@
 - 静态资源服务（图片、CSS、JS、robots.txt、sitemap.xml 等）
 - 静态资源预压缩（Gzip、Brotli、Zstd）
 - 深色主题跟随系统（纯 CSS，无 JS 闪烁）
-- HTML 页面缓存（release 模式，5 分钟），支持 If-Modified-Since → 304
-- 静态资源支持 Last-Modified + 304 条件请求，CDN友好
+- HTML 页面缓存（release 模式，5 分钟），支持 If-Modified-Since → 304（0.2.5 极致优化：使用 `bytes::Bytes` 实现零分配与零拷贝，预计算并缓存 HTTP 日期 HeaderValue）
+- 静态资源支持 Last-Modified + 304 条件请求，CDN 友好
 - HTTP 安全头（CSP、HSTS、X-Frame-Options、Permissions-Policy 等）
 - 安全配置加载增强：release 模式缓存 security 配置，debug 模式仍会热加载；非法 origin 会跳过并记录错误日志
 - release 模式强制 HTTPS，无证书直接拒绝启动
@@ -134,8 +134,8 @@ lily-nest/
 - 仅供个人学习/展示用途，欢迎二次开发
 
 ## 当前版本
-- **站点版本（site.toml）**：`0.2.4-beta`
-- **内核版本（Cargo.toml）**：`0.2.4`
+- **站点版本（site.toml）**：`0.2.5-beta`
+- **内核版本（Cargo.toml）**：`0.2.5`
 
 ## License
 MIT

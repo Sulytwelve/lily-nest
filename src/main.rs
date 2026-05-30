@@ -40,10 +40,10 @@ async fn main() {
         let addr_str = format!("[::]:{}", server_config.http_port);
         let addr: SocketAddr = addr_str.parse().expect("解析地址失败");
         info!(">> 梨窝 已启动 (dev): http://{}", addr);
-        let listener = tokio::net::TcpListener::bind(addr)
+        axum_server::bind(addr)
+            .serve(app.into_make_service())
             .await
-            .expect("Failed to bind address");
-        axum::serve(listener, app).await.expect("Server error");
+            .expect("Server error");
     } else {
         // release：必须有证书，否则 panic
         let tls = config::load_tls_config().expect("release 模式下必须配置 TLS，缺少证书配置");

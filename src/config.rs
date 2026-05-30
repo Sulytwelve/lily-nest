@@ -3,53 +3,36 @@ use serde::Deserialize;
 use std::fs;
 use tracing::error;
 
-pub fn load_site_profile() -> HomeProfile {
-    // 1. 尝试读取文件
+#[derive(Deserialize)]
+struct SiteToml {
+    #[serde(default)]
+    profile: HomeProfile,
+    #[serde(default)]
+    site: SiteConfig,
+}
+
+pub fn load_site_data() -> (HomeProfile, SiteConfig) {
     let content = match fs::read_to_string("site.toml") {
         Ok(c) => c,
         Err(e) => {
             error!("提示: 未找到 site.toml ({}), 使用内置默认配置", e);
-            return HomeProfile::default();
+            return (HomeProfile::default(), SiteConfig::default());
         }
     };
-
-    #[derive(Deserialize)]
-    struct Config {
-        profile: HomeProfile,
-    }
-
-    // 2. 尝试解析
-    toml::from_str::<Config>(&content)
-        .map(|c| c.profile)
-        .unwrap_or_else(|e| {
-            // 这里会打印出具体的错误：是少了双引号或字段类型对不上
-            // 配合 `model.rs` 的#[serde(default)]，缺失字段不会报错，只有“类型错误”或“格式错误”才会走到这里
-            error!("解析 site.toml 中的 [profile] 失败: {}. 请检查格式是否正确。", e);
-            HomeProfile::default()
-        })
-}
-
-pub fn load_site_config() -> SiteConfig {
-    let content = match fs::read_to_string("site.toml") {
-        Ok(c) => c,
+    match toml::from_str::<SiteToml>(&content) {
+        Ok(c) => (c.profile, c.site),
         Err(e) => {
-            error!("提示: 未找到 site.toml ({}), 使用默认元配置", e);
-            return SiteConfig::default();
+            error!("解析 site.toml 失败: {}. 请检查格式是否正确。", e);
+            (HomeProfile::default(), SiteConfig::default())
         }
-    };
-
-    #[derive(Deserialize)]
-    struct Config {
-        site: SiteConfig,
     }
-
-    toml::from_str::<Config>(&content)
-        .map(|c| c.site)
-        .unwrap_or_else(|e| {
-            error!("解析 site.toml 中的 [site] 失败: {}. 请检查格式是否正确。", e);
-            SiteConfig::default()
-        })
 }
+
+pub fn load_site_profile() -> HomeProfile {
+    load_site_data().0
+}
+
+
 
 pub fn load_projects() -> ProjectList {
     // 尝试读取 projects.toml
@@ -149,10 +132,10 @@ pub fn load_assets_config() -> AssetsConfig {
         })
 }
 
-pub fn get_editable_configs() -> Vec<String> {
+pub async fn get_editable_configs() -> Vec<String> {
     let mut editable = Vec::new();
-    if let Ok(entries) = fs::read_dir(".") {
-        for entry in entries.flatten() {
+    if let Ok(mut entries) = tokio::fs::read_dir(".").await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
             if let Some(name) = entry.file_name().to_str() {
                 if name.ends_with(".toml") && name != "config.toml" && name != "Cargo.toml" {
                     editable.push(name.to_string());

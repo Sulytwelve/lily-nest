@@ -1,11 +1,10 @@
-use crate::config::{load_about_items, load_projects, load_site_profile, load_site_config};
+use crate::config::{load_about_items, load_projects, load_site_data};
 use std::fs;
 
 pub fn render_index() -> String {
-    let profile_data = load_site_profile();
+    let (profile_data, site_config) = load_site_data();
     let projects_data = load_projects();
     let about_data = load_about_items();
-    let site_config = load_site_config();
 
     let mut html = fs::read_to_string("templates/index.html").unwrap_or_else(|_| {
         "<!doctype html><html><body><h1>templates/index.html not found</h1></body></html>"
