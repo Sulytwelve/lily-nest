@@ -26,7 +26,8 @@ pub fn router() -> Router {
         .route("/robots.txt", get(serve_robots))
         .route("/BingSiteAuth.xml", get(serve_bing_site_auth))
         .route("/sitemap.xml", get(serve_sitemap))
-        .route("/favicon.ico", get(serve_favicon));
+        .route("/favicon.ico", get(serve_favicon))
+        .route("/{baidu_verify_codeva}", get(serve_baidu_verify));
 
     let js_css_cc = format!("public, max-age={}", assets_config.js_css_cache_seconds);
     let js_css_cc_val = HeaderValue::try_from(js_css_cc)
@@ -154,4 +155,26 @@ async fn serve_favicon(req: Request) -> Response {
     let assets_config = crate::config::load_assets_config();
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file("./static/favicon.ico", "image/x-icon", &cc, req).await
+}
+
+async fn serve_baidu_verify(
+    axum::extract::Path(baidu_verify_codeva): axum::extract::Path<String>,
+    req: Request,
+) -> Response {
+    // 严格安全限制：仅允许以 baidu_ 开头、以 .html 结尾的文件名，且中间校验码必须是合法的安全字符
+    if baidu_verify_codeva.starts_with("baidu_") && baidu_verify_codeva.ends_with(".html") {
+        let code = baidu_verify_codeva
+            .trim_start_matches("baidu_")
+            .trim_end_matches(".html");
+        if code.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            let path = format!("./static/{}", baidu_verify_codeva);
+            let assets_config = crate::config::load_assets_config();
+            let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
+            serve_static_file(&path, "text/html; charset=utf-8", &cc, req).await
+        } else {
+            StatusCode::BAD_REQUEST.into_response()
+        }
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
 }
