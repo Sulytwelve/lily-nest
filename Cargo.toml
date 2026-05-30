@@ -3,6 +3,9 @@ name = "lily-nest"
 version = "0.2.5"
 edition = "2024"
 
+[features]
+force-http = []
+
 [dependencies]
 axum = "0.8.8"
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }

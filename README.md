@@ -100,8 +100,16 @@ lily-nest/
    cargo run --release
    ```
    访问 [https://[::1]:8443](https://[::1]:8443)
+   > **关于自签测试证书的提示：** 仓库中默认内置了针对 `example.com` 的 5 年自签证书仅用于本地快速开发与测试验证，**严禁**直接作为你自己的生产证书使用，梨梨（Sulytwelve）本人也绝不会在生产中使用该证书。公网部署请务必自行生成并替换你的专属证书！
 
-> **注意：** release 模式下若未配置证书，程序会直接 panic 拒绝启动。
+5. **生产模式（强制 HTTP，无需证书）：**
+   - 如果你计划在 Release 模式下运行但不配置 TLS 证书（例如部署在 Caddy、Nginx 或 Cloudflare Tunnel 等反向代理后面做 TLS 终止），可以使用 `force-http` 特性来强制以 HTTP 启动：
+   ```bash
+   cargo run --release --features force-http
+   ```
+   > **安全警告：** 强制 HTTP 模式下，管理后台的密码在传输时将以明文流转。请务必确保该服务只运行在受保护的内部局域网，或者前置代理已经启用了合法的 TLS！
+
+> **注意：** 默认情况下，release 模式下若未配置证书，且未指定 `force-http` 特性时，程序会直接 panic 拒绝启动。
 
 ## 配置说明
 - `config.toml`：TLS 证书路径、`[security]` 安全策略（CORS、CSP、Permissions Policy、管理员密码及双重验证配置）、`[assets]` 预压缩配置（启用开关、目标目录、压缩类型等）

@@ -11,7 +11,7 @@ pub mod state;
 
 use axum_server::tls_rustls::RustlsConfig;
 use std::net::SocketAddr;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
@@ -35,7 +35,11 @@ async fn main() {
 
     let server_config = config::load_server_config();
 
-    if cfg!(debug_assertions) {
+    if cfg!(any(debug_assertions, feature = "force-http")) {
+        if !cfg!(debug_assertions) && cfg!(feature = "force-http") {
+            warn!("[security] 警告: 当前正在 Release 模式下强制使用未加密的 HTTP 服务! 管理后台密码在传输时可能会被明文拦截，存在极大的安全风险!");
+        }
+
         // debug：直接 HTTP port
         let addr_str = format!("[::]:{}", server_config.http_port);
         let addr: SocketAddr = addr_str.parse().expect("解析地址失败");
