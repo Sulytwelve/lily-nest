@@ -1,0 +1,4 @@
+Contact: mailto:security@sulyhub.cn
+Expires: 2026-09-01T00:00:00Z
+Canonical: https://www.sulyhub.cn/.well-known/security.txt
+Preferred-Languages: zh, en

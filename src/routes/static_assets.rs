@@ -27,6 +27,7 @@ pub fn router() -> Router {
         .route("/BingSiteAuth.xml", get(serve_bing_site_auth))
         .route("/sitemap.xml", get(serve_sitemap))
         .route("/favicon.ico", get(serve_favicon))
+        .route("/.well-known/security.txt", get(serve_security_txt))
         .route("/{baidu_verify_codeva}", get(serve_baidu_verify));
 
     let js_css_cc = format!("public, max-age={}", assets_config.js_css_cache_seconds);
@@ -177,4 +178,15 @@ async fn serve_baidu_verify(
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
+}
+
+async fn serve_security_txt(req: Request) -> Response {
+    let assets_config = crate::config::load_assets_config();
+    let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
+    serve_static_file(
+        "./static/.well-known/security.txt",
+        "text/plain; charset=utf-8",
+        &cc,
+        req,
+    ).await
 }

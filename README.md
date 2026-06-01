@@ -10,6 +10,13 @@
 
 当前版本已添加更明确的资源路由与应用路由定义，进一步强化静态资源服务与安全策略。
 
+## 技术指标
+在极低配置的嵌入式设备（如玩客云等 armv7l 架构单板电脑）上，该项目展现出极致的系统开销与运行效率：
+- **极低内存常驻**：冷启动仅需 **600 KB** 内存；在经历多次配置动态加载与高频访问后，常驻内存依然稳定保持在 **2.3 MB** 左右。
+- **高并发与零分配**：核心页面与静态资源通过引用计数 `bytes::Bytes` 实现零堆分配、零拷贝（Zero-Copy）渲染，并在 7840HS 环境下实现 QPS 达 11.1 万 (HTTP) / 5.9 万 (HTTPS) 的极致吞吐。
+- **三级缓存优化**：通过内存级预编译缓存、HTTP Last-Modified/If-Modified-Since 的 304 协商响应，配合 CDN 缓存，最大化节省服务器与网卡开销（无图本地响应耗时约 500ms+；公网环境下受限于大体积 Web Components JS 与图片资源加载时间，总计耗时约数秒）。
+- **高度可控编译体积**：默认采用标准配置编译；在为受限目标环境（如玩客云）定制编译时，可通过手动开启 LTO（Link-Time Optimization）与符号裁剪，将 Release 二进制压缩至约 **5.0 MB**。
+
 ## 技术栈
 - Rust 2024
 - [Axum](https://github.com/tokio-rs/axum) Web 框架
@@ -32,7 +39,9 @@
 - HTML 页面缓存（release 模式，默认 1 小时，可在 config.toml 自定义），支持 If-Modified-Since → 304（使用 `bytes::Bytes` 实现零分配与零拷贝，预计算并缓存 HTTP 日期 HeaderValue）
 - 静态资源缓存控制：支持根据 config.toml 的 `[assets]` 集中配置 HTML、API、JS/CSS、图片、字体等缓存时间，完美分流与解耦
 - 静态资源支持 Last-Modified + 304 条件请求，CDN 友好
-- HTTP 安全头（CSP、HSTS、X-Frame-Options、Permissions-Policy 等）
+- HTTP 安全头（CSP、HSTS、X-Content-Type-Options、X-Frame-Options、Permissions-Policy 等）
+- RFC 9116 安全披露文件支持：配置并读取 `/.well-known/security.txt` 自适应缓存与规范化响应。
+- 动态 baidu 所有权验证支持：无需修改代码与重编译，直接丢入 `baidu_verify_codeva-*.html` 校验文件即可开箱即用（`0.2.6` 引入）。
 - 安全配置加载增强：release 模式缓存 security 配置，debug 模式仍会热加载；非法 origin 会跳过并记录错误日志
 - release 模式强制 HTTPS，无证书直接拒绝启动
 - 应用路由与资源路由已拆分：
@@ -142,9 +151,16 @@ lily-nest/
   > **🎉 缓存难题解决：** 在版本 [`3ad622c`](https://github.com/Sulytwelve/lily-nest/commit/3ad622c710db8421868019bd183f9c6d376510f8) 之后，梨梨（Sulytwelve）已将原有的 `8443` 非标端口回源方案改为了 **Cloudflare Tunnel (`cloudflared`)** 方案，将 `lily-nest` 的端口设置为 `https_port = 443` 并允许防火墙 `443` 端口出站。在完成此次变更后，网站已成功实现了所有静态资源（如 JS/CSS 等）在 Cloudflare 全球边缘节点的 100% `HIT`（缓存命中）！
 - 仅供个人学习/展示用途，欢迎二次开发
 
-## 当前版本
-- **站点版本（site.toml）**：`0.2.6-beta`
-- **内核版本（Cargo.toml）**：`0.2.6`
+## 梨梨的悄悄话：这个项目是怎么被雕琢出来的？
+这个项目，是梨梨用 Rust 一点点抠出来的。可能有人觉得它只是个普通的个人主页，但在你看不到的底层，梨梨花了很多心思。
+
+梨梨不想把它写得太夸张，但它在服务器上的表现确实让梨梨挺开心的：
+* **不爱占地方**：冷启动时，它在服务器上只吃 **600 KB** 内存；在玩客云这样羸弱的 ARM 设备上跑了快两天、后台存了多次配置后，常驻内存也稳稳地守在 **2.3 MB** 左右。比那些动辄几十上百兆的大家伙要老实多了。
+* **零拷贝与零堆分配**：主页渲染完就装在引用计数的 `bytes::Bytes` 里了。每次请求进来，它都是零分配、零拷贝地直接扔回给网卡，几乎没有多余的 CPU 消耗。
+* **只在必要时回源**：所有的缓存时间（HTML、API、CSS、JS、图片和字体）全都可以直接在 `config.toml` 里修改。不用重新编译，改完重启就行。
+* **搜索引擎验证**：项目已经把 Bing 的 `BingSiteAuth.xml` 路由验证写好了，Google 则是在 DNS 侧注入 TXT 记录或通过 Meta 头进行 GSC 索引认证。至于 baidu 验证，你克隆了项目后，把带随机字符的验证文件直接丢进 `static/` 目录就能用，写好了安全的泛路由，不需要重新编译。
+
+梨梨知道自己水平还很差，代码里可能有写得不妥帖的地方。但梨梨一直在努力改掉坏毛病，努力让这个小站跑得更优雅、更让人觉得靠谱一点。
 
 ## License
 MIT

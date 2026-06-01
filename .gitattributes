@@ -1,2 +1,1 @@
-templates/** linguist-detectable=false
-static/** linguist-detectable=false
+static/js/MaterialWeb.js linguist-detectable=false
