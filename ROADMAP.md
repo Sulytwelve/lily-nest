@@ -22,7 +22,19 @@
 
 ## 🏆 已完成的里程碑 (Milestones & Changelog)
 
-### 🔴 v0.2.4 配置解耦与端口分离版 (当前版本)
+### 🔴 v0.2.7 零拷贝缓存与安全披露版 (当前版本)
+- [x] **内存级零拷贝预缓存与缓存生命周期解耦 (Zero-Copy HTML Cache & Expiry Decoupling)**
+  - [x] 基于引用计数 `bytes::Bytes` 重构首页内存 HTML 缓存渲染系统，做到请求进入时真正的零内存堆分配（Zero-Allocation）与零拷贝（Zero-Copy）直接返还网卡。
+  - [x] 将所有页面与资源（HTML、API、JS/CSS、图片、字体）的缓存时长（Cache-Control）从代码中彻底解耦，在 `config.toml` 新增 `[assets]` 块进行集中管理，支持免重启即时调整。
+- [x] **安全网关与验证生态增强 (Security & Multi-Engine Verification)**
+  - [x] 新增对 RFC 9116 安全披露文件（`security.txt`）的规范化响应与自适应缓存路由支持，为站点引入透明的漏洞报告标准。
+  - [x] 设计并上线了针对 `baidu` 搜索引擎的**动态所有权泛解析路由**，基于严格的路径字符白名单阻断目录遍历风险，用户克隆项目后将验证 HTML 直接丢进 `static/` 即可实现免重启、免编译一键上线。
+  - [x] 内置了 Bing 搜索的 `BingSiteAuth.xml` 路由验证，并补充了 Google GSC 在 DNS 侧/Meta 标签侧的安全验证支持指引。
+- [x] **非标端口缓存与反向代理强制 HTTP 优化 (Cloudflare Cache & Force HTTP)**
+  - [x] 成功部署并验证了 **Cloudflare Tunnel (`cloudflared`)** 服务，将非标端口回源升级为 443 标准出站，扫平了 Cloudflare 限制非标端口边缘缓存的阻碍，实现静态资产全球边缘节点 100% 缓存命中（`HIT`）。
+  - [x] 新增 `force-http` 特性选项，允许在 Release 模式下彻底跳过 TLS 证书初始化检测，完美兼容 Caddy、Nginx 或 cloudflared 等反向代理前置进行 TLS 终止的架构。
+
+### 🔴 v0.2.4 配置解耦与端口分离版
 - [x] **服务器配置解耦 (Server Configuration Decoupling)**
   - [x] 将 HTTP 和 HTTPS 的运行端口彻底从代码硬编码中解耦，移入 `config.toml` 最顶部的 `[server]` 段。
   - [x] 新增 `ServerConfig` 模型和动态解析加载逻辑，支持免编译直接配置服务运行端口。
