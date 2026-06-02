@@ -37,7 +37,7 @@
               <div class="main-intro">{{intro}}</div>
               <nav class="action-row">
                 <md-filled-button href="#home">首页</md-filled-button>
-                <md-filled-tonal-button href="https://example.com" disabled
+                <md-filled-tonal-button href="{{blog_url}}" {{blog_disabled}}
                   >博客</md-filled-tonal-button
                 >
                 <md-filled-tonal-button href="#projects"
@@ -147,4 +147,5 @@
       </section>
     </main>
   </body>
+  {{web_analytics_script}}
 </html>

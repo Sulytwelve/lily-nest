@@ -1,4 +1,4 @@
-use crate::model::{AboutList, AssetsConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig, ServerConfig};
+use crate::model::{AboutList, AssetsConfig, CloudflareConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig, ServerConfig};
 use serde::Deserialize;
 use std::fs;
 use tracing::error;
@@ -129,6 +129,24 @@ pub fn load_assets_config() -> AssetsConfig {
                 error!("警告: assets 配置解析失败 ({}), 使用默认压缩配置", e);
             }
             AssetsConfig::default()
+        })
+}
+
+pub fn load_cloudflare_config() -> CloudflareConfig {
+    let content = std::fs::read_to_string("config.toml").unwrap_or_default();
+
+    #[derive(Deserialize)]
+    struct Wrapper {
+        cloudflare: Option<CloudflareConfig>,
+    }
+
+    toml::from_str::<Wrapper>(&content)
+        .map(|w| w.cloudflare.unwrap_or_default())
+        .unwrap_or_else(|e| {
+            if !content.is_empty() {
+                error!("警告: cloudflare 配置解析失败 ({}), 使用默认配置", e);
+            }
+            CloudflareConfig::default()
         })
 }
 

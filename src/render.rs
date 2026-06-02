@@ -1,10 +1,13 @@
-use crate::config::{load_about_items, load_projects, load_site_data};
+use crate::config::{load_about_items, load_projects, load_site_data, load_cloudflare_config};
 use std::fs;
+
+const CF_BEACON_TEMPLATE: &str = r#"<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "__CF_BEACON_TOKEN__"}'></script>"#;
 
 pub fn render_index() -> String {
     let (profile_data, site_config) = load_site_data();
     let projects_data = load_projects();
     let about_data = load_about_items();
+    let cf_data = load_cloudflare_config();
 
     let mut html = fs::read_to_string("templates/index.html").unwrap_or_else(|_| {
         "<!doctype html><html><body><h1>templates/index.html not found</h1></body></html>"
@@ -91,9 +94,26 @@ pub fn render_index() -> String {
     html = html.replace("{{ver}}", &html_escape(&profile_data.site_version));
     html = html.replace("{{members_html}}", &members_html);
     html = html.replace("{{intro}}", &html_escape(&profile_data.intro));
+    let blog_url_escaped = html_escape(sanitize_url(&profile_data.blog_url));
+    let blog_disabled = if profile_data.blog_enable { "" } else { "disabled" };
+    html = html.replace("{{blog_url}}", &blog_url_escaped);
+    html = html.replace("{{blog_disabled}}", blog_disabled);
     // 注入项目 HTML
     html = html.replace("{{projects_html}}", &projects_html);
     html = html.replace("{{about_items_html}}", &about_items_html);
+
+    // 注入 Cloudflare Web Analytics 脚本
+    let script = if let Some(ref token) = cf_data.web_analytics_token {
+        let clean_token = token.trim();
+        if clean_token.is_empty() || !clean_token.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            "".to_string()
+        } else {
+            CF_BEACON_TEMPLATE.replace("__CF_BEACON_TOKEN__", clean_token)
+        }
+    } else {
+        "".to_string()
+    };
+    html = html.replace("{{web_analytics_script}}", &script);
 
     html
 }
