@@ -239,12 +239,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const answer = authExtSecqEnabled ? securityAnswerInput.value : undefined;
         const questionIndex = authExtSecqEnabled ? tempQuestionIndex : undefined;
 
+        // 【关键修复】：必须在任何 await 之前同步禁用按钮，否则连点或回车会导致并发进入
+        loginConfirmBtn.disabled = true;
+
         if (authExtCftraceEnabled && !rawCfTrace) {
             await fetchTrace();
         }
 
         authDialog.close();
-        loginConfirmBtn.disabled = true;
+        
         try {
             await doLogin(password, answer, questionIndex, rawCfTrace);
             await loadConfigs();

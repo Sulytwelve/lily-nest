@@ -97,6 +97,7 @@ pub async fn handle_admin_login(
     req: Request,
 ) -> Response {
     let headers = req.headers().clone();
+    let req_uri_authority = req.uri().authority().map(|a| a.as_str().to_string());
 
     let client_ip = headers.get("cf-connecting-ip")
         .or_else(|| headers.get("x-real-ip"))
@@ -246,11 +247,15 @@ pub async fn handle_admin_login(
         }
 
         // 校验 trace host 与请求 host 一致性
+        // 在 HTTP/2 下，客户端可能只发送 :authority 伪头而不发送 Host 头。
+        // hyper 会将 :authority 放入 uri 的 authority 部分。
         let request_host = headers
-            .get("host")
-            .or_else(|| headers.get("x-forwarded-host"))
+            .get("x-forwarded-host")
+            .or_else(|| headers.get("host"))
             .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
+            .map(|s| s.to_string())
+            .or_else(|| req_uri_authority.clone())
+            .unwrap_or_else(|| "".to_string());
 
         let clean_host = |h: &str| -> String {
             let h = h.trim();
@@ -267,7 +272,7 @@ pub async fn handle_admin_login(
         };
 
         if let Some(ref th) = trace_host {
-            if clean_host(th) != clean_host(request_host) {
+            if clean_host(th) != clean_host(&request_host) {
                 warn!("[Security] Trace host '{}' does not match request host '{}'. IP: {}", th, request_host, client_ip);
                 return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
             }

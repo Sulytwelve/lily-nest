@@ -14,12 +14,7 @@ use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
-/// HTTP/2 SETTINGS_MAX_HEADER_LIST_SIZE：32 KB
-///
-/// 防御 HPACK 压缩炸弹攻击——攻击者发送极小的压缩帧，服务器解压后产生几十 GB 数据。
-/// 合法请求的 header 总量（含 JWT Bearer token、Cookie、UA 等）远低于此值，
-/// 通常不超过 8 KB，32 KB 已留有充足余量。
-const HTTP2_MAX_HEADER_LIST_SIZE: u32 = 32 * 1024; // 32 KB
+const HTTP2_MAX_HEADER_LIST_SIZE: u32 = 32 * 1024;
 
 #[tokio::main]
 async fn main() {
