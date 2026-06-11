@@ -85,9 +85,10 @@ lily-nest/
 
 ## 管理后台 (/admin)
 项目内置了一个基于 Material Design 3 的管理后台，允许管理员直接在浏览器中修改站点内容：
-- **安全验证**：通过请求头 `X-Admin-Password` 进行验证。
+- **安全验证**：基于 JWT (JSON Web Token) 的无状态鉴权机制，登录后 token 仅存储于当前标签页 (`sessionStorage`)，关闭即失效。
 - **密码设置**：在 `config.toml` 的 `[security]` 块中设置 `admin_password`。
 - **密码强制锁定**：若 `admin_password` 未设置、为空或保留默认的 `"CHANGE_YOUR_PASSWORD"`，系统将全面禁用登录功能并在服务器日志中输出 `error!` 级别的安全警告，强制保障管理权限不被任意滥用。
+- **多层防护**：内置严格的限流机制（Rate Limit），并支持基于 CF Trace 的深度校验及自定义安全问题二次验证。
 - **文件限制**：仅允许编辑内容相关的 `.toml` 文件，自动排除 `config.toml` 和 `Cargo.toml` 以保系统安全。
 
 > **安全提示**：在 Debug 模式（HTTP）下，密码以明文传输，仅建议在本地开发环境使用。在生产环境（Release 模式）下，必须配置 HTTPS 以确保传输加密。

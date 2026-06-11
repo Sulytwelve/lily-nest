@@ -1,4 +1,4 @@
-/* Admin Page Logic */
+/* Admin Page Logic — JWT Auth */
 document.addEventListener('DOMContentLoaded', () => {
     const editor = document.getElementById('editor');
     const configList = document.getElementById('config-list');
@@ -16,9 +16,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let securityQuestions = [];
 
-    let currentPassword = localStorage.getItem('admin_password') || '';
-    let currentAnswer = localStorage.getItem('admin_answer') || '';
-    let currentQuestionIndex = localStorage.getItem('admin_question_index') || 0;
+    // JWT token 存在 sessionStorage，关闭 tab 即失效
+    let jwtToken = sessionStorage.getItem('admin_jwt') || '';
+    let jwtExpiresAt = parseInt(sessionStorage.getItem('admin_jwt_expires_at') || '0', 10);
+
     let currentFile = '';
     let rawCfTrace = '';
     let authExtSecqEnabled = false;
@@ -35,6 +36,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function clearStatus() {
         statusText.innerText = '';
+    }
+
+    function isTokenValid() {
+        if (!jwtToken) return false;
+        const nowSec = Math.floor(Date.now() / 1000);
+        // 提前 30 秒视为过期，避免边界条件
+        return jwtExpiresAt > nowSec + 30;
+    }
+
+    function clearToken() {
+        jwtToken = '';
+        jwtExpiresAt = 0;
+        sessionStorage.removeItem('admin_jwt');
+        sessionStorage.removeItem('admin_jwt_expires_at');
     }
 
     (function initAuthConfig() {
@@ -96,9 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchTrace() {
         try {
             let url = cftraceUrl;
-            if (cftraceUrl.startsWith('/')) {
-                url = cftraceUrl;
-            } else {
+            if (!cftraceUrl.startsWith('/')) {
                 let traceHost = cftraceUrl.trim().toLowerCase();
                 if (traceHost.startsWith('http://')) traceHost = traceHost.substring(7);
                 else if (traceHost.startsWith('https://')) traceHost = traceHost.substring(8);
@@ -115,10 +128,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const currentHost = window.location.hostname.toLowerCase();
                 const normalize = dom => dom.startsWith('www.') ? dom.substring(4) : dom;
                 const useRelative = normalize(currentHost) === normalize(traceHostname);
-
                 url = useRelative ? '/cdn-cgi/trace' : (cftraceUrl.startsWith('http') ? cftraceUrl : `https://${cftraceUrl}`);
             }
-            
+
             const res = await fetch(url);
             if (res.ok) {
                 rawCfTrace = await res.text();
@@ -128,25 +140,72 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function apiFetch(url, options = {}) {
-        // 被限流期间不发送请求
+    // 登录：向 /api/v1/admin/login 发送凭据，换取 JWT
+    async function doLogin(password, answer, questionIndex, cfTrace) {
         if (Date.now() < rateLimitedUntil) {
-            updateStatus('Server not responding, please try again later', true);
+            updateStatus('Too many attempts, please wait.', true);
             throw new Error('Rate limited');
         }
 
-        if (authExtCftraceEnabled && !rawCfTrace) {
-            await fetchTrace();
+        const body = { password };
+        if (authExtSecqEnabled) {
+            body.answer = answer;
+            body.question_index = questionIndex;
+        }
+        if (authExtCftraceEnabled) {
+            body.cf_trace = cfTrace;
+        }
+
+        let response;
+        try {
+            response = await fetch('/api/v1/admin/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        } catch (e) {
+            updateStatus('Server not responding', true);
+            throw e;
+        }
+
+        if (response.status === 429) {
+            rateLimitedUntil = Date.now() + 60000;
+            updateStatus('Too many attempts, please wait 60s.', true);
+            throw new Error('Rate limited');
+        }
+
+        if (response.status === 401) {
+            updateStatus('Authentication failed. Check password/answer.', true);
+            throw new Error('Unauthorized');
+        }
+
+        if (!response.ok) {
+            updateStatus('Server error during login', true);
+            throw new Error('Login failed');
+        }
+
+        const data = await response.json();
+        jwtToken = data.token;
+        jwtExpiresAt = data.expires_at;
+        sessionStorage.setItem('admin_jwt', jwtToken);
+        sessionStorage.setItem('admin_jwt_expires_at', String(jwtExpiresAt));
+    }
+
+    // 带 JWT 的通用 API 请求
+    async function apiFetch(url, options = {}) {
+        if (!isTokenValid()) {
+            // Token 过期或不存在，弹出登录框
+            clearToken();
+            tempQuestionIndex = pickRandomQuestion();
+            authDialog.show();
+            throw new Error('Unauthorized');
         }
 
         const isGet = !options.method || options.method === 'GET';
         const headers = {
-            'X-Admin-Password': encodeURIComponent(currentPassword),
-            'X-Admin-Answer': authExtSecqEnabled ? encodeURIComponent(currentAnswer) : '',
-            'X-Admin-Question-Index': authExtSecqEnabled ? currentQuestionIndex.toString() : '0',
-            'X-Admin-Trace': encodeURIComponent(rawCfTrace),
+            'Authorization': `Bearer ${jwtToken}`,
             ...(isGet ? {} : { 'Content-Type': 'application/json' }),
-            ...options.headers
+            ...options.headers,
         };
 
         let response;
@@ -157,14 +216,9 @@ document.addEventListener('DOMContentLoaded', () => {
             throw e;
         }
 
-        if (response.status === 429) {
-            rateLimitedUntil = Date.now() + 60000;
-            updateStatus('Server not responding, please try again later', true);
-            console.warn('Admin: rate limited by server');
-            throw new Error('Rate limited');
-        }
-
         if (response.status === 401) {
+            // Token 被服务端拒绝（如服务器重启后 secret 变更）
+            clearToken();
             tempQuestionIndex = pickRandomQuestion();
             authDialog.show();
             throw new Error('Unauthorized');
@@ -176,34 +230,37 @@ document.addEventListener('DOMContentLoaded', () => {
     loginConfirmBtn.addEventListener('click', async () => {
         if (loginConfirmBtn.disabled) return;
 
-        if (!passwordInput.value || (authExtSecqEnabled && !securityAnswerInput.value)) {
+        const password = passwordInput.value;
+        if (!password || (authExtSecqEnabled && !securityAnswerInput?.value)) {
             updateStatus('Required fields missing', true);
             return;
         }
 
-        currentPassword = passwordInput.value;
-        localStorage.setItem('admin_password', currentPassword);
+        const answer = authExtSecqEnabled ? securityAnswerInput.value : undefined;
+        const questionIndex = authExtSecqEnabled ? tempQuestionIndex : undefined;
 
-        if (authExtSecqEnabled) {
-            currentAnswer = securityAnswerInput.value;
-            currentQuestionIndex = tempQuestionIndex;
-            localStorage.setItem('admin_answer', currentAnswer);
-            localStorage.setItem('admin_question_index', currentQuestionIndex);
+        if (authExtCftraceEnabled && !rawCfTrace) {
+            await fetchTrace();
         }
 
         authDialog.close();
         loginConfirmBtn.disabled = true;
         try {
+            await doLogin(password, answer, questionIndex, rawCfTrace);
             await loadConfigs();
+        } catch (e) {
+            if (e.message === 'Unauthorized') {
+                // 已在 doLogin 里 updateStatus，重新打开对话框
+                tempQuestionIndex = pickRandomQuestion();
+                authDialog.show();
+            }
         } finally {
             loginConfirmBtn.disabled = false;
         }
     });
 
     passwordInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            loginConfirmBtn.click();
-        }
+        if (e.key === 'Enter') loginConfirmBtn.click();
     });
 
     async function loadConfigs() {
@@ -258,7 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await apiFetch(`/api/v1/admin/configs/${currentFile}`, {
                 method: 'POST',
-                body: JSON.stringify({ content: editor.value })
+                body: JSON.stringify({ content: editor.value }),
             });
             if (res.ok) {
                 updateStatus('Saved');
@@ -276,21 +333,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     logoutBtn.addEventListener('click', () => {
-        localStorage.removeItem('admin_password');
-        localStorage.removeItem('admin_answer');
-        localStorage.removeItem('admin_question_index');
+        clearToken();
         window.location.reload();
     });
 
     // Initial load
-    if (currentPassword) {
+    if (isTokenValid()) {
         loadConfigs();
     } else {
+        clearToken();
         setTimeout(() => {
-            if (!currentPassword) {
-                tempQuestionIndex = pickRandomQuestion();
-                authDialog.show();
-            }
+            tempQuestionIndex = pickRandomQuestion();
+            authDialog.show();
         }, 100);
     }
 });

@@ -127,6 +127,8 @@ pub struct SecurityConfig {
     pub auth_ext_cftrace: Option<bool>,
     pub cftrace_url: Option<String>,
     pub allowed_locs: Option<Vec<String>>,
+    /// JWT 签名 token 的有效期（秒），默认 28800 (8 小时)
+    pub jwt_expiry_secs: Option<u64>,
 }
 
 impl Default for SecurityConfig {
@@ -154,6 +156,7 @@ impl Default for SecurityConfig {
             auth_ext_cftrace: Some(false),
             cftrace_url: Some("https://cloudflare.com/cdn-cgi/trace".to_string()),
             allowed_locs: Some(vec!["CN".to_string()]),
+            jwt_expiry_secs: Some(28800),
         }
     }
 }
@@ -220,6 +223,35 @@ pub struct ConfigFile {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SaveConfigRequest {
     pub content: String,
+}
+
+/// POST /api/v1/admin/login 的请求体
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AdminLoginRequest {
+    pub password: String,
+    /// 安全问题答案（auth_ext_secq 启用时必填）
+    pub answer: Option<String>,
+    /// 安全问题索引（auth_ext_secq 启用时必填）
+    pub question_index: Option<usize>,
+    /// CF Trace 原始文本（auth_ext_cftrace 启用时必填）
+    pub cf_trace: Option<String>,
+}
+
+/// POST /api/v1/admin/login 的成功响应体
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminLoginResponse {
+    pub token: String,
+    /// Token 的过期时间戳 (Unix seconds, UTC)
+    pub expires_at: u64,
+}
+
+/// JWT Claims
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JwtClaims {
+    /// subject，固定 "admin"
+    pub sub: String,
+    /// 过期时间 (Unix seconds, UTC)
+    pub exp: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

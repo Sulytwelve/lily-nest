@@ -2,13 +2,14 @@ use std::sync::Arc;
 use axum::{
     extract::{DefaultBodyLimit, Path, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router, middleware,
 };
 use tracing::{info, error};
 
 use crate::{
     config::{load_site_profile, get_editable_configs},
+    middlewares::handle_admin_login,
     model::{ConfigFile, HealthResponse, HomeProfile, SaveConfigRequest},
     state::AppState,
 };
@@ -16,7 +17,9 @@ use crate::{
 pub fn router(state: Arc<AppState>) -> Router {
     let public_routes = Router::new()
         .route("/home/profile", get(get_home_profile))
-        .route("/health", get(health_handler));
+        .route("/health", get(health_handler))
+        // 登录端点：不在 admin_auth_middleware 范围内，但有 rate limit
+        .route("/admin/login", post(handle_admin_login));
 
     let admin_routes = Router::new()
         .route("/admin/configs", get(list_configs))

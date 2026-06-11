@@ -7,14 +7,19 @@ mod routes;
 pub mod render;
 pub mod state;
 
-
-
 use axum_server::tls_rustls::RustlsConfig;
 use std::net::SocketAddr;
 use tracing::{info, warn};
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
+
+/// HTTP/2 SETTINGS_MAX_HEADER_LIST_SIZE：32 KB
+///
+/// 防御 HPACK 压缩炸弹攻击——攻击者发送极小的压缩帧，服务器解压后产生几十 GB 数据。
+/// 合法请求的 header 总量（含 JWT Bearer token、Cookie、UA 等）远低于此值，
+/// 通常不超过 8 KB，32 KB 已留有充足余量。
+const HTTP2_MAX_HEADER_LIST_SIZE: u32 = 32 * 1024; // 32 KB
 
 #[tokio::main]
 async fn main() {
@@ -44,7 +49,9 @@ async fn main() {
         let addr_str = format!("[::]:{}", server_config.http_port);
         let addr: SocketAddr = addr_str.parse().expect("解析地址失败");
         info!(">> 梨窝 已启动 (dev): http://{}", addr);
-        axum_server::bind(addr)
+        let mut server = axum_server::bind(addr);
+        server.http_builder().http2().max_header_list_size(HTTP2_MAX_HEADER_LIST_SIZE);
+        server
             .serve(app.into_make_service())
             .await
             .expect("Server error");
@@ -70,7 +77,9 @@ async fn main() {
         let addr_str = format!("[::]:{}", server_config.https_port);
         let addr: SocketAddr = addr_str.parse().expect("解析地址失败");
         info!(">> 梨窝 已启动: https://{}", addr);
-        axum_server::bind_rustls(addr, config)
+        let mut server = axum_server::bind_rustls(addr, config);
+        server.http_builder().http2().max_header_list_size(HTTP2_MAX_HEADER_LIST_SIZE);
+        server
             .serve(app.into_make_service())
             .await
             .expect("Server error");

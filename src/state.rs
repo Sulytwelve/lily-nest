@@ -36,4 +36,6 @@ pub struct AppState {
     pub security_config: Arc<SecurityConfig>,
     pub assets_config: Arc<AssetsConfig>,
     pub auth_rate_limiter: Mutex<HashMap<String, Vec<Instant>>>,
+    /// 启动时随机生成，重启后所有 token 自动失效
+    pub jwt_secret: Vec<u8>,
 }

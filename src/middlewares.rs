@@ -1,22 +1,27 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::{
+    Json,
     extract::{Request, State},
     http::{HeaderName, HeaderValue, Method, StatusCode, header},
     middleware,
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info, warn};
 
-use crate::{model::SecurityConfig, state::AppState};
+use crate::{
+    model::{AdminLoginRequest, AdminLoginResponse, JwtClaims, SecurityConfig},
+    state::AppState,
+};
 
 pub fn build_cors_layer(security_config: &SecurityConfig) -> CorsLayer {
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([header::CONTENT_TYPE]);
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
     if security_config.allow_origins.contains(&"*".to_string()) {
         cors.allow_origin(Any)
@@ -86,37 +91,20 @@ pub async fn security_headers(
     res
 }
 
-pub async fn admin_auth_middleware(
+/// POST /api/v1/admin/login — 验证凭据，签发 JWT
+pub async fn handle_admin_login(
     State(state): State<Arc<AppState>>,
     req: Request,
-    next: middleware::Next,
 ) -> Response {
-    let headers = req.headers();
-    let provided_password = headers
-        .get("X-Admin-Password")
-        .and_then(|v| v.to_str().ok())
-        .map(percent_decode);
-    let provided_answer = headers
-        .get("X-Admin-Answer")
-        .and_then(|v| v.to_str().ok())
-        .map(percent_decode);
-    let provided_index = headers
-        .get("X-Admin-Question-Index")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<usize>().ok());
-    let cf_trace_raw = headers.get("X-Admin-Trace").and_then(|v| v.to_str().ok()).unwrap_or("");
-    let cf_trace = percent_decode(cf_trace_raw);
+    let headers = req.headers().clone();
 
     let client_ip = headers.get("cf-connecting-ip")
         .or_else(|| headers.get("x-real-ip"))
         .or_else(|| headers.get("x-forwarded-for"))
         .and_then(|v| v.to_str().ok())
         .unwrap_or("Unknown IP");
-    let user_agent = headers.get("user-agent")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("Unknown User-Agent");
 
-    // Rate limiting: 5 attempts per 60 seconds per IP
+    // Rate limiting — 只有登录请求才消耗限额，带 token 的正常请求不计入
     {
         let now = Instant::now();
         let mut limiter = state.auth_rate_limiter.lock().await;
@@ -127,20 +115,25 @@ pub async fn admin_auth_middleware(
         let window = limiter.entry(client_ip.to_string()).or_default();
         if window.len() >= 5 {
             drop(limiter);
-            warn!(
-                "Admin rate limit exceeded for IP: {}, Path: {}",
-                client_ip,
-                req.uri().path()
-            );
+            warn!("Admin login rate limit exceeded for IP: {}", client_ip);
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, "60")],
                 "Too many requests",
-            )
-                .into_response();
+            ).into_response();
         }
         window.push(now);
     }
+
+    // 解析请求体
+    let body_bytes = match axum::body::to_bytes(req.into_body(), 64 * 1024).await {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid request body").into_response(),
+    };
+    let payload: AdminLoginRequest = match serde_json::from_slice(&body_bytes) {
+        Ok(p) => p,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid JSON").into_response(),
+    };
 
     let security_config = if cfg!(debug_assertions) {
         std::sync::Arc::new(tokio::task::spawn_blocking(crate::config::load_security_config).await.unwrap_or_else(|e| {
@@ -156,221 +149,197 @@ pub async fn admin_auth_middleware(
     let auth_ext_secq = security_config.auth_ext_secq.unwrap_or(false);
     let auth_ext_cftrace = security_config.auth_ext_cftrace.unwrap_or(false);
     let allowed_locs = security_config.allowed_locs.clone().unwrap_or_else(|| vec!["CN".to_string()]);
+    let expiry_secs = security_config.jwt_expiry_secs.unwrap_or(28800);
 
-    let mut failure_reason = None;
-
-    let mut loc = None;
-    let mut warp = None;
-    let mut gateway = None;
-    let mut trace_ip = None;
-    let mut trace_uag = None;
-    let mut trace_host = None;
-
-    for line in cf_trace.lines() {
-        if let Some((key, value)) = line.split_once('=') {
-            let key = key.trim();
-            let value = value.trim();
-            match key {
-                "h" => trace_host = Some(value.to_string()),
-                "loc" => loc = Some(value.to_string()),
-                "warp" => warp = Some(value.to_string()),
-                "gateway" => gateway = Some(value.to_string()),
-                "ip" => trace_ip = Some(value.to_string()),
-                "uag" => trace_uag = Some(value.to_string()),
-                _ => {}
-            }
-        }
-    }
-
-    let is_authenticated = match &actual_password {
+    // 1. 验证密码
+    let password_ok = match &actual_password {
         None => {
             error!("[Security] Admin login attempt rejected: Admin password not configured on server.");
-            failure_reason = Some("Admin password not configured on server".to_string());
             false
         }
         Some(a) if a.is_empty() || a == "CHANGE_YOUR_PASSWORD" => {
             error!("[Security] Admin login attempt rejected: The default placeholder password ('CHANGE_YOUR_PASSWORD') is in use. Please change your admin_password in config.toml!");
-            failure_reason = Some("Admin password is uninitialized or uses default placeholder, login disallowed".to_string());
             false
         }
-        Some(a) => {
-            match &provided_password {
-                Some(p) if p == a => {
-                    let secq_ok = if auth_ext_secq {
-                        if let Some(answers) = actual_answers {
-                            match (provided_index, &provided_answer) {
-                                (Some(idx), Some(ans)) if idx < answers.len() => {
-                                    let correct = &answers[idx] == ans;
-                                    if !correct {
-                                        failure_reason = Some(format!("Security question answer incorrect (Question index: {})", idx));
-                                    }
-                                    correct
-                                }
-                                _ => {
-                                    failure_reason = Some("Security question index or answer missing/invalid".to_string());
-                                    false
-                                }
-                            }
-                        } else {
-                            failure_reason = Some("Security question answers not configured in backend".to_string());
-                            false
-                        }
-                    } else {
-                        true
-                    };
+        Some(a) => payload.password == *a,
+    };
 
-                    let trace_warp_ok = if secq_ok && auth_ext_cftrace {
-                        let loc_ok = match loc {
-                            Some(ref l) => {
-                                let ok = allowed_locs.contains(l);
-                                if !ok {
-                                    warn!("CF Trace: location '{}' not allowed (allowed: {:?})", l, allowed_locs);
-                                    failure_reason = Some(format!("CF Trace: location '{}' not allowed (allowed: {:?})", l, allowed_locs));
-                                }
-                                ok
-                            }
-                            None => {
-                                warn!("CF Trace: location 'loc' missing in trace");
-                                failure_reason = Some("CF Trace: location 'loc' missing in trace".to_string());
-                                false
-                            }
-                        };
+    if !password_ok {
+        warn!("Admin login failed: wrong password. IP: {}", client_ip);
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
 
-                        let warp_on = if warp.as_deref() == Some("on") {
-                            true
-                        } else {
-                            if loc_ok {
-                                warn!("CF Trace: WARP is off (warp={:?})", warp);
-                                failure_reason = Some(format!("CF Trace: WARP is off (warp={:?})", warp));
-                            }
-                            false
-                        };
-
-                        let gateway_on = if gateway.as_deref() == Some("on") {
-                            true
-                        } else {
-                            if loc_ok && warp_on {
-                                warn!("CF Trace: Gateway is off (gateway={:?})", gateway);
-                                failure_reason = Some(format!("CF Trace: Gateway is off (gateway={:?})", gateway));
-                            }
-                            false
-                        };
-
-                        let request_host = headers
-                        .get("host")
-                        .or_else(|| headers.get("x-forwarded-host"))
-                        .and_then(|v| v.to_str().ok())
-                        .or_else(|| req.uri().host())
-                        .unwrap_or("");
-
-                        let clean_host = |h: &str| -> String {
-                            let h = h.trim();
-                            let without_port = if h.starts_with('[') {
-                                if let Some(end_idx) = h.find(']') {
-                                    &h[..=end_idx]
-                                } else {
-                                    h
-                                }
-                            } else {
-                                h.split(':').next().unwrap_or(h)
-                            };
-                            without_port.strip_prefix("www.").unwrap_or(without_port).to_string()
-                        };
-
-                        let trace_host_ok = match trace_host {
-                            Some(ref th) => {
-                                if clean_host(th) != clean_host(request_host) {
-                                    warn!("[Security] Trace host '{}' does not match request host '{}'", th, request_host);
-                                    failure_reason = Some(format!("CF Trace: host '{}' does not match request host '{}'", th, request_host));
-                                    false
-                                } else {
-                                    true
-                                }
-                            }
-                            None => {
-                                warn!("CF Trace: host 'h' missing in trace");
-                                failure_reason = Some("CF Trace: host 'h' missing in trace".to_string());
-                                false
-                            }
-                        };
-
-                        let trace_ip_ok = match trace_ip {
-                            Some(ref tip) => {
-                                if tip != client_ip {
-                                    warn!("[Security] Trace IP '{}' does not match CF-Connecting-IP '{}'", tip, client_ip);
-                                    failure_reason = Some(format!("CF Trace: IP '{}' does not match client IP '{}'", tip, client_ip));
-                                    false
-                                } else {
-                                    true
-                                }
-                            }
-                            None => {
-                                warn!("CF Trace: IP 'ip' missing in trace");
-                                failure_reason = Some("CF Trace: IP 'ip' missing in trace".to_string());
-                                false
-                            }
-                        };
-
-                        loc_ok && warp_on && gateway_on && trace_host_ok && trace_ip_ok
-                    } else {
-                        true
-                    };
-
-                    secq_ok && trace_warp_ok
-                }
-                Some(_) => {
-                    failure_reason = Some("Password incorrect".to_string());
-                    false
-                }
-                None => {
-                    failure_reason = Some("No password provided".to_string());
-                    false
+    // 2. 验证安全问题（可选）
+    if auth_ext_secq {
+        let answers = match actual_answers {
+            Some(ref a) => a,
+            None => {
+                error!("[Security] auth_ext_secq enabled but no answers configured");
+                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            }
+        };
+        match (payload.question_index, &payload.answer) {
+            (Some(idx), Some(ans)) if idx < answers.len() => {
+                if &answers[idx] != ans {
+                    warn!("Admin login failed: wrong security answer (idx={}). IP: {}", idx, client_ip);
+                    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
                 }
             }
+            _ => {
+                warn!("Admin login failed: security question index or answer missing. IP: {}", client_ip);
+                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            }
+        }
+    }
+
+    // 3. 验证 CF Trace（可选）
+    if auth_ext_cftrace {
+        let cf_trace = payload.cf_trace.as_deref().unwrap_or("");
+        let mut loc = None;
+        let mut warp = None;
+        let mut gateway = None;
+        let mut trace_ip = None;
+        let mut trace_host = None;
+
+        for line in cf_trace.lines() {
+            if let Some((key, value)) = line.split_once('=') {
+                match key.trim() {
+                    "h"       => trace_host = Some(value.trim().to_string()),
+                    "loc"     => loc         = Some(value.trim().to_string()),
+                    "warp"    => warp        = Some(value.trim().to_string()),
+                    "gateway" => gateway     = Some(value.trim().to_string()),
+                    "ip"      => trace_ip    = Some(value.trim().to_string()),
+                    _ => {}
+                }
+            }
+        }
+
+        let loc_ok = match &loc {
+            Some(l) => {
+                if !allowed_locs.contains(l) {
+                    warn!("Admin login failed: CF Trace loc '{}' not allowed. IP: {}", l, client_ip);
+                    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                }
+                true
+            }
+            None => {
+                warn!("Admin login failed: CF Trace loc missing. IP: {}", client_ip);
+                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            }
+        };
+
+        if loc_ok && warp.as_deref() != Some("on") {
+            warn!("Admin login failed: CF Trace WARP is off. IP: {}", client_ip);
+            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        }
+        if loc_ok && gateway.as_deref() != Some("on") {
+            warn!("Admin login failed: CF Trace Gateway is off. IP: {}", client_ip);
+            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        }
+
+        // 校验 trace IP 与客户端 IP 一致性
+        if let Some(ref tip) = trace_ip {
+            if tip != client_ip {
+                warn!("[Security] Trace IP '{}' does not match CF-Connecting-IP '{}'. IP: {}", tip, client_ip, client_ip);
+                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            }
+        }
+
+        // 校验 trace host 与请求 host 一致性
+        let request_host = headers
+            .get("host")
+            .or_else(|| headers.get("x-forwarded-host"))
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        let clean_host = |h: &str| -> String {
+            let h = h.trim();
+            let without_port = if h.starts_with('[') {
+                if let Some(end_idx) = h.find(']') {
+                    &h[..=end_idx]
+                } else {
+                    h
+                }
+            } else {
+                h.split(':').next().unwrap_or(h)
+            };
+            without_port.strip_prefix("www.").unwrap_or(without_port).to_string()
+        };
+
+        if let Some(ref th) = trace_host {
+            if clean_host(th) != clean_host(request_host) {
+                warn!("[Security] Trace host '{}' does not match request host '{}'. IP: {}", th, request_host, client_ip);
+                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            }
+        }
+    }
+
+    // 所有验证通过，签发 JWT
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let expires_at = now_secs + expiry_secs;
+
+    let claims = JwtClaims {
+        sub: "admin".to_string(),
+        exp: expires_at,
+    };
+
+    let token = match encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(&state.jwt_secret),
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            error!("JWT encode failed: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
         }
     };
 
-    let final_ip = trace_ip.as_deref().unwrap_or(client_ip);
-    let final_loc = loc.as_deref().unwrap_or("Unknown Location");
-    let final_uag = trace_uag.as_deref().unwrap_or(user_agent);
+    info!(
+        "Admin login successful, JWT issued. IP: {}, expires_at: {}",
+        client_ip, expires_at
+    );
 
-    if is_authenticated {
-        info!(
-            "Admin authentication successful! IP: {}, Geolocation: {}, User-Agent: {}, Path: {}",
-            final_ip, final_loc, final_uag, req.uri().path()
-        );
-        next.run(req).await
-    } else {
-        warn!(
-            "Admin authentication failed! Reason: {}, IP: {}, Geolocation: {}, User-Agent: {}, Path: {}",
-            failure_reason.unwrap_or_else(|| "Unknown failure".to_string()),
-            final_ip,
-            final_loc,
-            final_uag,
-            req.uri().path()
-        );
-        (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
-    }
+    Json(AdminLoginResponse { token, expires_at }).into_response()
 }
 
-fn percent_decode(s: &str) -> String {
-    let mut bytes = Vec::new();
-    let mut chars = s.as_bytes().iter().peekable();
-    while let Some(&b) = chars.next() {
-        if b == b'%' {
-            let mut chars_clone = chars.clone();
-            if let (Some(&h1), Some(&h2)) = (chars_clone.next(), chars_clone.next()) {
-                let d1 = (h1 as char).to_digit(16);
-                let d2 = (h2 as char).to_digit(16);
-                if let (Some(v1), Some(v2)) = (d1, d2) {
-                    bytes.push((v1 << 4 | v2) as u8);
-                    chars.next();
-                    chars.next();
-                    continue;
-                }
-            }
+/// admin_auth_middleware — 只验 Bearer JWT，不再接受密码 header
+pub async fn admin_auth_middleware(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+    next: middleware::Next,
+) -> Response {
+    let token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+
+    let token = match token {
+        Some(t) => t.to_string(),
+        None => {
+            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
         }
-        bytes.push(b);
+    };
+
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.sub = Some("admin".to_string());
+
+    match decode::<JwtClaims>(
+        &token,
+        &DecodingKey::from_secret(&state.jwt_secret),
+        &validation,
+    ) {
+        Ok(_) => {
+            // Token 有效，放行
+            next.run(req).await
+        }
+        Err(e) => {
+            warn!("Admin JWT validation failed: {}", e);
+            (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
+        }
     }
-    String::from_utf8_lossy(&bytes).into_owned()
 }
