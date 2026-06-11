@@ -13,9 +13,24 @@
 ## 技术指标
 在极低配置的嵌入式设备（如玩客云、香橙派等 armv7l 架构单板电脑）上，该项目展现出极致的系统开销与运行效率：
 - **极低内存常驻**：冷启动仅需 **600 KB** 内存；在经历多次配置动态加载与高频访问后，常驻内存依然稳定保持在 **2.3 MB** 左右。
-- **高并发与零分配**：核心页面与静态资源通过引用计数 `bytes::Bytes` 实现零堆分配、零拷贝（Zero-Copy）渲染，并在 7840HS 环境下实现 QPS 达 11.1 万 (HTTP) / 5.9 万 (HTTPS) 的极致吞吐。
-- **三级缓存优化**：通过内存级预编译缓存、HTTP Last-Modified/If-Modified-Since 的 304 协商响应，配合 CDN 缓存，最大化节省服务器与网卡开销（无图本地响应耗时约 500ms+；公网环境下受限于大体积 Web Components JS 与图片资源加载时间，总计耗时约数秒）。
+- **高并发与零分配**：核心页面与静态资源通过引用计数 `bytes::Bytes` 实现零堆分配、零拷贝（Zero-Copy）渲染。在 7840HS + Arch Linux 环境下，本地回路 QPS 飙升至 **65.6 万 (HTTP/1.1)** 与 **41.0 万 (HTTP/2)** 的极致吞吐。
+- **三级缓存优化**：通过内存级预编译缓存、HTTP Last-Modified/If-Modified-Since 的 304 协商响应，配合 CDN 缓存，最大化节省服务器与网卡开销。
 - **高度可控编译体积**：默认采用标准配置编译；在为受限目标环境（如玩客云）定制编译时，可通过手动开启 LTO（Link-Time Optimization）与符号裁剪，将 Release 二进制压缩至约 **5.0 MB**。
+
+### 性能压测报告
+环境：Ryzen 7 7840HS + Arch Linux，`lily-nest` release + LTO + force-http 模式
+
+| 场景 | 工具 | 协议 | Req/s | 延迟 P50 | 延迟 P99 | 吞吐 |
+|:---|:---|:---|:---|:---|:---|:---|
+| X270 → 工作站（LAN） | `wrk -t4 -c64` | HTTP/1.1 | 12,180 | — | — | 109 MB/s |
+| X270 → 工作站 `/health` | `wrk -t4 -c64` | HTTP/1.1 | 7,309 | 7.78ms | 24.63ms | 5.43 MB/s |
+| X270 → 工作站 `/` | `wrk -t4 -c64` | HTTP/1.1 | 884 | 64.06ms | 182.26ms | 7.99 MB/s |
+| 本地回路 `/health` | `wrk -t8 -c64` | HTTP/1.1 | **656,781** | 0.32ms | 1.36ms | — |
+| 本地回路 `/` | `wrk -t8 -c64` | HTTP/1.1 | **523,439** | 0.41ms | 1.40ms | — |
+| 本地回路 `/health` | `oha -c256` | HTTP/2 | 410,882 | 0.54ms | 1.98ms | — |
+| 本地回路 `/` | `oha -c256` | HTTP/2 | 298,334 | 0.79ms | 2.22ms | — |
+| Go/fasthttp `/health` (对比参考) | `wrk -t8 -c256`| HTTP/1.1 | 844,286 | 0.21ms | 2.57ms | — |
+| Go/fasthttp `/` (对比参考) | `wrk -t8 -c256`| HTTP/1.1 | 562,155 | 0.32ms | 4.14ms | — |
 ## 技术栈
 - Rust 2024
 - [Axum](https://github.com/tokio-rs/axum) Web 框架
@@ -131,6 +146,8 @@ lily-nest/
 - `static/`：静态资源（图片、CSS、JS、robots.txt 等）
 
 ## 安全特性
+- **HTTP/2 协议层防御**：全局限制 `max_header_list_size` 为 32KB，从底层阻断针对 HTTP/2 HPACK 的压缩炸弹攻击（如 CVE-2026-49975），拒绝异常内存消耗。
+- **无状态 JWT 鉴权**：管理后台采用 JWT 令牌进行认证，替代了传统的自定义 Header 传输，并在登录接口配置了防爆破的 Rate Limit 速率限制。
 - URL 协议校验：仅允许 `/` 和 `http://` 以及 `https://` 开头的链接，防止 `javascript:` XSS 注入
 - HTML 转义：所有配置内容插入页面前均转义
 - HTTP 安全响应头：CSP、HSTS、X-Content-Type-Options、X-Frame-Options、Referrer-Policy、Permissions-Policy
