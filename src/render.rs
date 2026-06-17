@@ -144,3 +144,52 @@ pub fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
 }
+
+pub fn render_index_markdown() -> String {
+    let (profile_data, site_config) = load_site_data();
+    let projects_data = load_projects();
+    let about_data = load_about_items();
+    let changelog_data = load_changelog();
+
+    let mut md = String::with_capacity(4096);
+
+    // 1. 标题与简介
+    md.push_str(&format!("# {}\n\n", site_config.index_title));
+    md.push_str(&format!("> {}\n>\n", profile_data.intro));
+    
+    let members = profile_data.team_members.join(", ");
+    md.push_str(&format!("> **当前版本**：{} | **团队成员**：{}\n\n", profile_data.site_version, members));
+    md.push_str("---\n\n");
+
+    // 2. 项目概览
+    md.push_str("## 💻 项目概览\n\n");
+    for proj in &projects_data.items {
+        md.push_str(&format!("*   **[{}]({})**：{}\n", proj.name, proj.url, proj.desc));
+    }
+    md.push_str("\n---\n\n");
+
+    // 3. 关于我
+    md.push_str("## 🛠️ 关于我\n\n");
+    for item in &about_data.items {
+        md.push_str(&format!("*   **{}**：{}\n", item.title, item.content));
+    }
+    md.push_str("\n---\n\n");
+
+    // 4. 更新日志
+    md.push_str("## ⏱️ 更新日志\n\n");
+    for item in &changelog_data.items {
+        let tag = item.tag.as_deref().unwrap_or("");
+        let since = item.since.as_deref().unwrap_or("");
+        let meta = match (tag.is_empty(), since.is_empty()) {
+            (false, false) => format!(" `[{}]` (since `{}`)", tag, since),
+            (false, true) => format!(" `[{}]`", tag),
+            (true, false) => format!(" (since `{}`)", since),
+            (true, true) => String::new(),
+        };
+        md.push_str(&format!("### {} — {}{}\n", item.date, item.title, meta));
+        md.push_str(&format!("{}\n\n", item.content));
+    }
+
+    md
+}
+

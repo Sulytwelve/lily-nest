@@ -1,4 +1,4 @@
-use crate::model::{AboutList, AssetsConfig, ChangelogList, CloudflareConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig, ServerConfig};
+use crate::model::{AboutList, AssetsConfig, ChangelogList, CloudflareConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig, ServerConfig, MarkdownConfig};
 use serde::Deserialize;
 use std::fs;
 use tracing::error;
@@ -162,6 +162,24 @@ pub fn load_cloudflare_config() -> CloudflareConfig {
                 error!("警告: cloudflare 配置解析失败 ({}), 使用默认配置", e);
             }
             CloudflareConfig::default()
+        })
+}
+
+pub fn load_markdown_config() -> MarkdownConfig {
+    let content = std::fs::read_to_string("config.toml").unwrap_or_default();
+
+    #[derive(Deserialize)]
+    struct Wrapper {
+        markdown: Option<MarkdownConfig>,
+    }
+
+    toml::from_str::<Wrapper>(&content)
+        .map(|w| w.markdown.unwrap_or_default())
+        .unwrap_or_else(|e| {
+            if !content.is_empty() {
+                error!("警告: markdown 配置解析失败 ({}), 使用默认配置", e);
+            }
+            MarkdownConfig::default()
         })
 }
 

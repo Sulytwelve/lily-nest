@@ -55,3 +55,9 @@ permissions_policy = "camera=(), microphone=(), geolocation=(), payment=()"
 # 如果留空或注释，则不注入任何分析代码。
 # web_analytics_token = "YOUR_CLOUDFLARE_ANALYTICS_TOKEN"
 
+[markdown]
+enable = false
+
+
+
+

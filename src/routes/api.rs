@@ -108,14 +108,29 @@ async fn save_config(
             error!("render_index panicked in spawn_blocking (save_config): {e}");
             String::new()
         });
+
+    let markdown_enabled = state.markdown_config.enable;
+    let rendered_md = if markdown_enabled {
+        tokio::task::spawn_blocking(crate::render::render_index_markdown)
+            .await
+            .unwrap_or_else(|e| {
+                error!("render_index_markdown panicked in spawn_blocking (save_config): {e}");
+                String::new()
+            })
+    } else {
+        String::new()
+    };
+
     {
         let mut cache = state.html_cache.write().await;
         *cache = crate::state::HtmlCache::new(
             std::time::SystemTime::now(),
             rendered.into(),
+            rendered_md.into(),
             state.assets_config.html_cache_seconds,
         );
     }
+
 
     info!("In-memory HTML cache and started_at refreshed successfully after saving {}", name);
 

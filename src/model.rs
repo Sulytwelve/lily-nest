@@ -243,6 +243,13 @@ pub struct CloudflareConfig {
     pub web_analytics_token: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct MarkdownConfig {
+    #[serde(default)]
+    pub enable: bool,
+}
+
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigFile {
     pub name: String,
