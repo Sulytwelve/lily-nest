@@ -1,7 +1,17 @@
-use crate::config::{load_about_items, load_projects, load_site_data, load_cloudflare_config};
+use crate::config::{load_about_items, load_changelog, load_projects, load_site_data, load_cloudflare_config};
 use std::fs;
+use tracing::error;
 
 const CF_BEACON_TEMPLATE: &str = r#"<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "__CF_BEACON_TOKEN__"}'></script>"#;
+
+/// 从 templates/fragments/ 读取片段文件，找不到则返回空字符串并记录错误
+fn load_fragment(name: &str) -> String {
+    let path = format!("templates/fragments/{}", name);
+    fs::read_to_string(&path).unwrap_or_else(|e| {
+        error!("无法加载片段模板 {}: {}", path, e);
+        String::new()
+    })
+}
 
 pub fn render_index() -> String {
     let (profile_data, site_config) = load_site_data();
@@ -13,11 +23,18 @@ pub fn render_index() -> String {
         "<!doctype html><html><body><h1>templates/index.html not found</h1></body></html>"
             .to_string()
     });
+
+    // 加载片段模板
+    let member_tpl = load_fragment("member_button.html");
+    let project_tpl = load_fragment("project_item.html");
+    let divider_tpl = load_fragment("project_divider.html");
+    let about_tpl = load_fragment("about_item.html");
+
     // 1. 组装成员
     let members_html = profile_data
         .team_members
         .iter()
-        .map(|m| format!(r#"<md-text-button>{}</md-text-button>"#, html_escape(m)))
+        .map(|m| member_tpl.replace("{name}", &html_escape(m)))
         .collect::<String>();
 
     // 2. 组装项目预览
@@ -27,38 +44,12 @@ pub fn render_index() -> String {
         .enumerate()
         .map(|(i, proj)| {
             // 如果不是第一个元素，在前面加一个分割线
-            let divider = if i > 0 {
-                "<md-divider></md-divider>"
-            } else {
-                ""
-            };
-
-            format!(
-                r#"{divider}
-                  <md-list-item type="button" href="{url}" target="_blank" rel="noopener">
-                    <md-icon slot="start">
-                      <svg style="height: 48px; width: 48px" viewBox="0 -960 960 960">
-                        <path
-                          d="M320-240 80-480l240-240 57 57-184 184 183 183-56 56Zm320 0-57-57 184-184-183-183 56-56 240 240-240 240Z"
-                        />
-                      </svg>
-                    </md-icon>
-                    <div slot="headline">{name}</div>
-                    <div slot="supporting-text">{desc}</div>
-                    <md-icon slot="end">
-                      <svg style="height: 48px; width: 48px" viewBox="0 -960 960 960">
-                        <path
-                          d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z"
-                        />
-                      </svg>
-                    </md-icon>
-                  </md-list-item>
-                "#,
-                divider = divider,
-                url = html_escape(sanitize_url(&proj.url)),
-                name = html_escape(&proj.name),
-                desc = html_escape(&proj.desc)
-            )
+            let divider = if i > 0 { divider_tpl.as_str() } else { "" };
+            let rendered = project_tpl
+                .replace("{url}", &html_escape(sanitize_url(&proj.url)))
+                .replace("{name}", &html_escape(&proj.name))
+                .replace("{desc}", &html_escape(&proj.desc));
+            format!("{divider}{rendered}")
         })
         .collect::<String>();
 
@@ -67,18 +58,33 @@ pub fn render_index() -> String {
         .items
         .iter()
         .map(|item| {
-            format!(
-                r#"
-        <md-list-item>
-            <img slot="start" src="{icon}" style="width: 24px; height: 24px; border-radius: 50%;" alt="{title}">
-            <div slot="headline">{title}</div>
-            <div slot="supporting-text">{content}</div>
-        </md-list-item>
-        "#,
-                icon = html_escape(sanitize_url(&item.icon_url)),
-                title = html_escape(&item.title),
-                content = html_escape(&item.content)
-            )
+            about_tpl
+                .replace("{icon}", &html_escape(sanitize_url(&item.icon_url)))
+                .replace("{title}", &html_escape(&item.title))
+                .replace("{content}", &html_escape(&item.content))
+        })
+        .collect::<String>();
+
+    // 4. 更新日志（最多展示 10 条）
+    let changelog_tpl = load_fragment("changelog_item.html");
+    let changelog_data = load_changelog();
+    let changelog_html = changelog_data
+        .items
+        .iter()
+        .take(10)
+        .map(|item| {
+            let tag_text = item.tag.as_deref().unwrap_or("");
+            let tag_style = if tag_text.trim().is_empty() { "display:none" } else { "" };
+            let since_text = item.since.as_deref().unwrap_or("");
+            let since_style = if since_text.trim().is_empty() { "display:none" } else { "" };
+            changelog_tpl
+                .replace("{date}", &html_escape(&item.date))
+                .replace("{title}", &html_escape(&item.title))
+                .replace("{content}", &html_escape(&item.content))
+                .replace("{tag}", &html_escape(tag_text))
+                .replace("{tag_style}", tag_style)
+                .replace("{since}", &html_escape(since_text))
+                .replace("{since_style}", since_style)
         })
         .collect::<String>();
 
@@ -101,6 +107,7 @@ pub fn render_index() -> String {
     // 注入项目 HTML
     html = html.replace("{{projects_html}}", &projects_html);
     html = html.replace("{{about_items_html}}", &about_items_html);
+    html = html.replace("{{changelog_html}}", &changelog_html);
 
     // 注入 Cloudflare Web Analytics 脚本
     let script = if let Some(ref token) = cf_data.web_analytics_token {
