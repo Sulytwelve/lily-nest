@@ -29,7 +29,12 @@ async fn handler_home_page(
         .unwrap_or(false);
 
     if wants_markdown {
-        return serve_markdown_or_debug(state, req).await;
+        let mut res = serve_markdown_or_debug(state, req).await;
+        res.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),
+        );
+        return res;
     }
 
     if cfg!(debug_assertions) {
