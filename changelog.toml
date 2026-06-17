@@ -1,0 +1,19 @@
+[[items]]
+date = "2026-06-15"
+title = "v0.2.8 — HTML 片段模板拆分"
+content = "将 render.rs 中的硬编码 HTML 拆分到 templates/fragments/ 目录，前后端模板解耦。"
+tag = "重构"
+
+[[items]]
+date = "2026-05-30"
+title = "v0.2.7 — 零拷贝预缓存"
+content = "引入 bytes::Bytes 零拷贝响应机制与 RFC 9116 security.txt 支持。"
+tag = "性能"
+since = "3ad622c"
+
+[[items]]
+date = "2026-05-20"
+title = "v0.2.6 — 管理面板上线"
+content = "新增后台 TOML 在线编辑、多重安全提问校验与 Cloudflare Trace 深度校验。"
+tag = "功能"
+since = "a1b2c3d"

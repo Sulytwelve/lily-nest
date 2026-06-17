@@ -60,8 +60,7 @@ body {
 }
 
 .hero-layout {
-  width: fit-content;
-  max-width: 100%;
+  width: 100%;
   flex-wrap: wrap;
 }
 
@@ -85,7 +84,6 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: right;
 }
 
 .explore-more {
@@ -404,4 +402,100 @@ md-divider {
 }
 .animate-entry {
   animation: entry-fade 1.2s cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+/* ===== 时间线布局 ===== */
+.timeline-layout {
+  max-width: 100%;
+  position: relative;
+  padding-left: 28px;
+}
+
+/* 时间线竖线 */
+.timeline-layout::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background-color: var(--md-sys-color-outline-variant);
+  opacity: 0.5;
+}
+
+/* 单条时间线条目 */
+.timeline-item {
+  position: relative;
+  padding-bottom: 24px;
+}
+
+.timeline-item:last-child {
+  padding-bottom: 0;
+}
+
+/* 时间线节点圆点 */
+.timeline-node {
+  position: absolute;
+  left: -28px;
+  top: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: var(--md-sys-color-primary);
+  border: 3px solid var(--md-sys-color-surface);
+  z-index: 1;
+  box-sizing: border-box;
+}
+
+/* 日期标签 */
+.timeline-date {
+  font-size: 0.8rem;
+  color: var(--md-sys-color-on-surface-variant);
+  margin-bottom: 8px;
+  font-family: monospace;
+  letter-spacing: 0.5px;
+}
+
+/* 时间线卡片 */
+.timeline-card {
+  background-color: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 20px;
+  padding: 20px 24px;
+}
+
+/* 卡片标题 */
+.timeline-card-title {
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface);
+  margin-bottom: 8px;
+}
+
+/* 标签药丸 */
+.timeline-card-tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 2px 12px;
+  border-radius: 100px;
+  background-color: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  margin-bottom: 10px;
+}
+
+/* 卡片正文 */
+.timeline-card-content {
+  font-size: 0.9rem;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.6;
+}
+
+/* since 引用 */
+.timeline-card-since {
+  font-size: 0.7rem;
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 0.5;
+  font-family: monospace;
+  margin-top: 12px;
 }

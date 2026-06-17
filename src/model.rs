@@ -95,6 +95,35 @@ impl Default for AboutList {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChangelogItem {
+    pub date: String,
+    pub title: String,
+    pub content: String,
+    pub tag: Option<String>,
+    pub since: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChangelogList {
+    pub items: Vec<ChangelogItem>,
+}
+
+impl Default for ChangelogList {
+    fn default() -> Self {
+        Self {
+            items: vec![ChangelogItem {
+                date: "2026-01-01".to_string(),
+                title: "初始版本".to_string(),
+                content: "梨窝上线。".to_string(),
+                tag: None,
+                since: None,
+            }],
+        }
+    }
+}
+
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerConfig {
     pub http_port: u16,
     pub https_port: u16,

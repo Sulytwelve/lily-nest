@@ -1,4 +1,4 @@
-use crate::model::{AboutList, AssetsConfig, CloudflareConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig, ServerConfig};
+use crate::model::{AboutList, AssetsConfig, ChangelogList, CloudflareConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig, ServerConfig};
 use serde::Deserialize;
 use std::fs;
 use tracing::error;
@@ -64,6 +64,21 @@ pub fn load_about_items() -> AboutList {
         Err(e) => {
             error!("解析 about.toml 失败: {}, 使用默认配置", e);
             AboutList::default()
+        }
+    }
+}
+
+pub fn load_changelog() -> ChangelogList {
+    let content = match std::fs::read_to_string("changelog.toml") {
+        Ok(s) => s,
+        Err(_) => return ChangelogList::default(),
+    };
+
+    match toml::from_str::<ChangelogList>(&content) {
+        Ok(list) => list,
+        Err(e) => {
+            error!("解析 changelog.toml 失败: {}, 使用默认配置", e);
+            ChangelogList::default()
         }
     }
 }
