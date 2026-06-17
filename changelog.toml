@@ -1,4 +1,11 @@
 [[items]]
+date = "2026-06-17"
+title = "v0.2.9 — 更新日志与安全加固"
+content = "新增首页更新日志时间轴，迁移管理后台至 JWT 鉴权以防范并发请求，并针对 HTTP/2 HPACK 进行协议加固。"
+tag = "功能"
+since = "adb7a98"
+
+[[items]]
 date = "2026-06-15"
 title = "v0.2.8 — HTML 片段模板拆分"
 content = "将 render.rs 中的硬编码 HTML 拆分到 templates/fragments/ 目录，前后端模板解耦。"

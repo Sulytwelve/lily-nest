@@ -13,16 +13,37 @@
   - [x] 在 `config.toml` 中新增 `[server]` 配置块，支持 `http_port` 和 `https_port` 字段。
   - [x] 重构 `src/main.rs`，将硬编码的 `8880` (Debug) 和 `8443` (Release) 端口改为从配置中动态加载，使服务支持零编译一键更换运行端口。
   
-- [ ] **🎨 解耦呈现逻辑：分离 HTML 渲染片段**
-  - [ ] 创建 `templates/project_item.html` 和 `templates/about_item.html` 独立骨架文件。
-  - [ ] 重构 `src/render.rs`，将硬编码在 `format!` 宏中的项目卡片与关于我 HTML 片段剥离。
-  - [ ] 使程序在运行时动态读取片段模板并执行参数替换，使前端样式修改彻底免除 Rust 源码重编译。
+- [x] **🎨 解耦呈现逻辑：分离 HTML 渲染片段（已完成）**
+  - [x] 创建 `templates/fragments/project_item.html` 和 `templates/fragments/about_item.html` 等独立骨架文件。
+  - [x] 重构 `src/render.rs`，将原先硬编码在 `format!` 宏中的 HTML 片段全部剥离。
+  - [x] 在程序运行时动态读取片段模版并执行占位符参数替换，使前端样式修改彻底免除 Rust 源码重编译。
+
+- [ ] **📝 0.3.0 增加 note 笔记页面与归档管理**
+  - [ ] 引入 `notes.toml` 或笔记存储目录，支持笔记元数据（标题、发布时间、分类、标签等）及正文内容的管理。
+  - [ ] 实现笔记列表页与详情页路由，引入 Markdown 渲染引擎（如 `pulldown-cmark`），实现文章正文的动态解析与安全转义。
+  - [ ] 在管理后台（/admin）增加笔记的在线管理支持，提供可视化的新增、编辑、删除与草稿/发布状态切换功能。
 
 ---
 
 ## 🏆 已完成的里程碑 (Milestones & Changelog)
 
-### 🔴 v0.2.7 零拷贝缓存与安全披露版 (当前版本)
+### 🔴 v0.2.9 / v0.2.8 模板解耦、更新日志与安全升级版 (当前版本)
+- [x] **HTML 片段模板拆分与渲染解耦 (Fragment-Based Template Rendering)**
+  - [x] 将 `render.rs` 中的硬编码 HTML 骨架彻底剥离，移入独立 HTML 片段模板（`templates/fragments/`，如 `project_item.html`, `about_item.html` 等）。
+  - [x] 运行时动态加载并替换占位符，使前端样式与结构修改免除 Rust 源码重编译，提高维护灵活性。
+- [x] **动态更新日志时间轴 (Dynamic Changelog Timeline)**
+  - [x] 新增 `changelog.toml` 配置文件，实现首页时间轴风格更新日志的动态渲染，支持展示最近 10 条日志，带有 tag 标签和 Commit Hash（since）关联。
+- [x] **无状态 JWT 鉴权迁移 (Stateless JWT Authentication)**
+  - [x] 将后台管理登录迁移至标准的 JWT 令牌验证。登录通过 POST `/api/v1/admin/login` 接口进行完整的敏感鉴权并返回令牌，后续配置读取与修改 API 仅验证 `Authorization: Bearer <token>` 头部，免除每次请求重新算哈希/密保的性能开销。
+  - [x] 每次服务器启动生成新的随机 64 字节密钥（`jwt_secret`），服务重启后所有历史 JWT 自动失效，强化系统防线。
+  - [x] 客户端 token 仅存于 `sessionStorage`，关闭浏览器标签页立即失效。
+- [x] **网络安全加固与 HPACK 炸弹防御 (Network Hardening & Host Matching)**
+  - [x] 针对 `axum-server` 的 HTTP/HTTPS 端口绑定器设置 `max_header_list_size` 上限为 32KB，阻断 HTTP/2 HPACK 压缩炸弹 DoS 攻击。
+  - [x] 修正 HTTP/2 下由于客户端不发 Host 头（只发 `:authority` 伪头）导致的 Cloudflare Trace 校验失败问题，通过解析请求 URI Authority 兼容此情况。
+- [x] **前端并发登录 Race Condition 修复 (UI Concurrency Fix)**
+  - [x] 优化 `admin.js`，在点击 Confirm 按钮时立即同步禁用它，彻底避免用户快速双击或重复按回车键导致的多重并发登录请求。
+
+### 🔴 v0.2.7 零拷贝缓存与安全披露版
 - [x] **内存级零拷贝预缓存与缓存生命周期解耦 (Zero-Copy HTML Cache & Expiry Decoupling)**
   - [x] 基于引用计数 `bytes::Bytes` 重构首页内存 HTML 缓存渲染系统，做到请求进入时真正的零内存堆分配（Zero-Allocation）与零拷贝（Zero-Copy）直接返还网卡。
   - [x] 将所有页面与资源（HTML、API、JS/CSS、图片、字体）的缓存时长（Cache-Control）从代码中彻底解耦，在 `config.toml` 新增 `[assets]` 块进行集中管理，支持免重启即时调整。
