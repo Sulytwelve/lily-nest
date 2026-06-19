@@ -56,7 +56,7 @@ permissions_policy = "camera=(), microphone=(), geolocation=(), payment=()"
 # web_analytics_token = "YOUR_CLOUDFLARE_ANALYTICS_TOKEN"
 
 [markdown]
-enable = false
+enable = true
 
 
 

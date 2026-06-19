@@ -4,6 +4,7 @@ mod config;
 mod middlewares;
 mod model;
 mod routes;
+pub mod note_loader;
 pub mod render;
 pub mod state;
 

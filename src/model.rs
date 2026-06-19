@@ -296,3 +296,29 @@ impl Default for SiteConfig {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NoteFrontmatter {
+    pub title: String,
+    pub date: String,
+    pub updated_at: Option<String>,
+    pub slug: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub excerpt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteSummary {
+    pub meta: NoteFrontmatter,
+    pub filename: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminNoteSaveRequest {
+    pub title: String,
+    pub tags: Vec<String>,
+    pub excerpt: Option<String>,
+    pub content: String,
+    pub original_slug: Option<String>,
+}
+

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Instant, SystemTime};
 use tokio::sync::{Mutex, RwLock};
-use crate::model::{SecurityConfig, AssetsConfig, MarkdownConfig};
+use crate::model::{SecurityConfig, AssetsConfig, MarkdownConfig, NoteSummary};
 use std::sync::Arc;
 use bytes::Bytes;
 use axum::http::HeaderValue;
@@ -41,4 +41,14 @@ pub struct AppState {
     pub auth_rate_limiter: Mutex<HashMap<String, Vec<Instant>>>,
     /// 启动时随机生成，重启后所有 token 自动失效
     pub jwt_secret: Vec<u8>,
+
+    // Notes
+    pub note_index: RwLock<Vec<NoteSummary>>,
+    pub note_html_cache: RwLock<HashMap<String, NoteHtmlCache>>,
+    pub note_list_html_cache: RwLock<Option<Bytes>>,
+}
+
+#[derive(Clone)]
+pub struct NoteHtmlCache {
+    pub body: Bytes,
 }
