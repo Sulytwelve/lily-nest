@@ -2,31 +2,39 @@ use std::sync::Arc;
 
 use axum::{
     Router,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderValue, header, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
+use serde::Deserialize;
 
 use crate::state::AppState;
+
+#[derive(Deserialize, Default)]
+struct HomeQuery {
+    format: Option<String>,
+}
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(handler_home_page))
-        .route("/index.md", get(handler_markdown_page))
         .route("/index.html", get(|| async { Redirect::permanent("/") }))
         .with_state(state)
 }
 
 async fn handler_home_page(
     State(state): State<Arc<AppState>>,
+    Query(query): Query<HomeQuery>,
     req: axum::extract::Request,
 ) -> Response {
-    let wants_markdown = state.markdown_config.enable && req.headers()
-        .get(header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.contains("text/markdown") || v.contains("text/x-markdown"))
-        .unwrap_or(false);
+    let wants_markdown = state.markdown_config.enable
+        && (query.format.as_deref() == Some("markdown")
+            || req.headers()
+                .get(header::ACCEPT)
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.contains("text/markdown") || v.contains("text/x-markdown"))
+                .unwrap_or(false));
 
     if wants_markdown {
         let mut res = serve_markdown_or_debug(state, req).await;
@@ -45,7 +53,10 @@ async fn handler_home_page(
                 String::new()
             });
         return (
-            [(header::CACHE_CONTROL, "no-cache")],
+            [
+                (header::CACHE_CONTROL, "no-cache"),
+                (header::LINK, "</?format=markdown>; rel=\"alternate\"; type=\"text/markdown\""),
+            ],
             Html(html),
         )
             .into_response();
@@ -60,17 +71,14 @@ async fn handler_home_page(
         return res;
     }
 
-    serve_cache_response(cache.body.clone(), "text/html; charset=utf-8", &cache)
-}
-
-async fn handler_markdown_page(
-    State(state): State<Arc<AppState>>,
-    req: axum::extract::Request,
-) -> Response {
-    if !state.markdown_config.enable {
-        return StatusCode::NOT_FOUND.into_response();
+    let mut res = serve_cache_response(cache.body.clone(), "text/html; charset=utf-8", &cache);
+    if state.markdown_config.enable {
+        res.headers_mut().insert(
+            header::LINK,
+            HeaderValue::from_static("</?format=markdown>; rel=\"alternate\"; type=\"text/markdown\""),
+        );
     }
-    serve_markdown_or_debug(state, req).await
+    res
 }
 
 async fn serve_markdown_or_debug(
@@ -148,4 +156,3 @@ fn serve_cache_response(
     );
     res
 }
-
