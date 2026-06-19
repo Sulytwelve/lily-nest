@@ -63,10 +63,19 @@ async fn create_note(
     Json(payload): Json<AdminNoteSaveRequest>,
 ) -> Result<StatusCode, StatusCode> {
     let now = Local::now();
-    let date_str = now.format("%Y-%m-%dT%H:%M:%S%z").to_string();
+    let date_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
     
-    // simple slug generation
-    let slug = payload.title.to_lowercase().replace(" ", "-").replace("/", "");
+    // simple slug generation (safe for all filesystems)
+    let slug = payload.title.to_lowercase()
+        .replace(char::is_whitespace, "-")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-')
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+        
     let date_prefix = now.format("%Y%m%d-%H%M%S").to_string();
     let filename = format!("{}-{}.md", date_prefix, slug);
     let filepath = format!("notes/{}", filename);
@@ -85,12 +94,15 @@ async fn create_note(
     };
 
     let file_content = build_note_file_content(&meta, &payload.content);
-    tokio::fs::write(&filepath, file_content).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    tokio::fs::write(&filepath, file_content).await.map_err(|e| {
+        tracing::error!("创建笔记写入文件失败 ({}): {}", filepath, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     // reload index
     {
         let mut index = state.note_index.write().await;
-        *index = crate::note_loader::load_all_notes();
+        *index = crate::note_loader::load_all_notes().await;
     }
     {
         *state.note_list_html_cache.write().await = None;
@@ -114,7 +126,7 @@ async fn update_note(
     };
 
     let now = Local::now();
-    let updated_at_str = now.format("%Y-%m-%dT%H:%M:%S%z").to_string();
+    let updated_at_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
     
     let meta = NoteFrontmatter {
         title: payload.title.clone(),
@@ -127,12 +139,15 @@ async fn update_note(
 
     let file_content = build_note_file_content(&meta, &payload.content);
     let filepath = format!("notes/{}", old_filename);
-    tokio::fs::write(&filepath, file_content).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    tokio::fs::write(&filepath, file_content).await.map_err(|e| {
+        tracing::error!("更新笔记写入文件失败 ({}): {}", filepath, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     // reload cache
     {
         let mut index = state.note_index.write().await;
-        *index = crate::note_loader::load_all_notes();
+        *index = crate::note_loader::load_all_notes().await;
     }
     {
         *state.note_list_html_cache.write().await = None;
@@ -153,10 +168,12 @@ async fn delete_note(
 
     if let Some(filename) = filename {
         let filepath = format!("notes/{}", filename);
-        let _ = tokio::fs::remove_file(&filepath).await;
+        if let Err(e) = tokio::fs::remove_file(&filepath).await {
+            tracing::error!("删除笔记文件失败 ({}): {}", filepath, e);
+        }
 
         let mut index = state.note_index.write().await;
-        *index = crate::note_loader::load_all_notes();
+        *index = crate::note_loader::load_all_notes().await;
 
         *state.note_list_html_cache.write().await = None;
         state.note_html_cache.write().await.remove(&slug);

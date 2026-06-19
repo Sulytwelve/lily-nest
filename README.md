@@ -6,9 +6,10 @@
 - www.sulyhub.cn
 
 ## 项目简介
-梨窝是一个基于 Rust + Axum 的个人主页/作品集网站，支持项目动态加载、团队成员展示、深浅色主题等功能，界面采用 Material You 风格，支持响应式设计。
+梨窝是一个基于 Rust + Axum 的个人主页与技术分享网站。它不仅支持项目展示、团队成员和动态更新日志，还在 v0.3.0 引入了**「梨记」(lily-note)**——一个完全由纯 Markdown 文件驱动的轻量级个人笔记模块。
+界面采用 Material You 风格，原生支持深浅色系统主题与全响应式设计。
 
-当前版本已添加更明确的资源路由与应用路由定义，进一步强化静态资源服务与安全策略。
+当前版本进一步强化了纯文件管理的理念，通过无数据库的架构实现了极简运维，同时保留了极高的性能与安全防护。
 
 ## 技术指标
 在极低配置的嵌入式设备（如玩客云、香橙派等 armv7l 架构单板电脑）上，该项目展现出极致的系统开销与运行效率：
@@ -45,9 +46,11 @@ Go版本是AI翻译当前Rust版本得来，只做参考，非生产产品。
 - 前端：原生 Material Design、@material/web 组件、本地 Material 3 主题 CSS
 
 ## 主要功能
+- **「梨记」轻量级笔记模块 (NEW!)**：无需数据库，文章全部以 `.md` 纯文本文件存储于 `notes/` 目录。
+- **笔记全文瞬时检索**：前端原生 JavaScript 提供零网络请求的标题、摘要与 `#标签` 秒级过滤。
 - 首页动态渲染（项目、团队成员、关于我、更新日志）
-- **HTML 片段模块化渲染**：采用 `templates/fragments/` 独立骨架片段，运行时动态拼装，实现样式/结构修改完全免除 Rust 源码重编译
-- **后台管理面板（/admin）：支持在线编辑 TOML 配置文件（site.toml, projects.toml, about.toml, changelog.toml 等）**
+- **HTML 片段模块化渲染**：采用 `templates/fragments/` 独立骨架片段，运行时动态拼装，免除 Rust 源码重编译
+- **强大的后台管理面板 (/admin)**：不仅支持在线编辑各项 TOML 配置，还内置了**在线 Markdown 编辑器**用于新建、修改、删除笔记文件，保存操作 100% 异步落盘。
 - 配置文件驱动（config.toml、site.toml、projects.toml、about.toml、changelog.toml）
 - config.toml 中的 [security] 块支持动态 CORS、CSP、Permissions Policy 及 **管理员密码** 配置
 - RESTful API（/api/v1/health、/api/v1/home/profile、/api/v1/admin/*、/api/v1/admin/login 登录接口）
@@ -75,41 +78,43 @@ lily-nest/
 ├── projects.toml             # 项目列表配置
 ├── about.toml                # 关于我列表配置
 ├── changelog.toml            # 更新日志配置
-├── MWC/                      # Material Web Components 构建环境（暂不打算上传至仓库）
+├── notes/                    # 「梨记」Markdown 笔记存储目录 (NEW!)
 ├── certs/                    # SSL 证书目录
 ├── src/
 │   ├── main.rs               # 应用入口
-│   ├── app.rs                # 路由编织与全局共享状态（含 JWT 密钥生成）
+│   ├── app.rs                # 路由编织与全局共享状态
 │   ├── state.rs              # 全局共享状态 AppState
 │   ├── routes/
-│   │   ├── mod.rs            # 路由模块定义
+│   │   ├── mod.rs            
 │   │   ├── home.rs           # 首页路由（含 304 支持）
-│   │   ├── api.rs            # 公开 RESTful API 路由（含 admin 路由与登录端点）
-│   │   ├── admin.rs           # 后台管理页面路由
-│   │   └── static_assets.rs  # 静态资源服务路由（含 Last-Modified + 304）
-│   ├── render.rs             # HTML 模板拼接渲染与片段模板动态加载
-│   ├── middlewares.rs        # 全局中间件（CORS、安全头及管理后台 JWT 签发与鉴权）
-│   ├── config.rs             # 配置文件解析加载（site, about, projects, changelog 等）
+│   │   ├── note.rs           # 「梨记」前台路由 (列表与详情)
+│   │   ├── note_admin.rs     # 「梨记」后台管理路由 (CRUD)
+│   │   ├── api.rs            # 公开 RESTful API 与通用配置保存
+│   │   ├── admin.rs          # 后台管理页面渲染路由
+│   │   └── static_assets.rs  # 静态资源路由
+│   ├── render.rs             # HTML 模板拼接渲染
+│   ├── note_loader.rs        # 异步纯文件 Markdown 加载与 TOML 提取引擎
+│   ├── middlewares.rs        # 全局中间件（CORS、安全头及鉴权）
+│   ├── config.rs             # 配置文件解析
 │   ├── model.rs              # 数据模型定义
 │   ├── compressor.rs         # 静态资源预压缩工具
 ├── static/
 │   ├── css/
-│   │   ├── admin.css         # 后台自定义样式
-│   │   ├── user-theme.css    # 核心页面样式与更新日志时间轴样式
-│   │   └── ...
+│   │   ├── admin.css
+│   │   ├── user-theme.css
+│   │   └── note.css          # 梨记样式表
 │   ├── js/
-│   │   ├── admin.js          # 后台交互与 JWT 无状态鉴权逻辑
-│   │   ├── MaterialWeb.js    # 核心组件库（本地构建）
-│   │   └── ...
-├── templates/                 # HTML 模板目录
+│   │   ├── admin.js
+│   │   ├── MaterialWeb.js
+│   │   ├── note.js           # 梨记列表与前端检索逻辑
+│   │   └── note_detail.js    # 梨记详情页逻辑
+├── templates/
 │   ├── index.html            # 主页模板
 │   ├── admin.html            # 后台管理页面模板
+│   ├── note.html             # 梨记列表页模板
+│   ├── note_detail.html      # 梨记详情页模板
 │   └── fragments/            # HTML 渲染片段模板目录
-│       ├── project_item.html     # 项目展示条目模版
-│       ├── project_divider.html  # 项目条目分割线模版
-│       ├── about_item.html       # 关于我展示条目模版
-│       ├── member_button.html    # 团队成员按钮模版
-│       └── changelog_item.html   # 更新日志展示条目模版
+│       └── ...
 └── ...
 ```
 

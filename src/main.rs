@@ -32,7 +32,7 @@ async fn main() {
     }
 
     // 构建应用（路由、静态资源等）
-    let app = app::build_app();
+    let app = app::build_app().await;
 
     let server_config = config::load_server_config();
 

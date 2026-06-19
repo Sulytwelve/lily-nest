@@ -100,10 +100,10 @@ pub fn render_index() -> String {
     html = html.replace("{{ver}}", &html_escape(&profile_data.site_version));
     html = html.replace("{{members_html}}", &members_html);
     html = html.replace("{{intro}}", &html_escape(&profile_data.intro));
-    let blog_url_escaped = html_escape(sanitize_url(&profile_data.blog_url));
-    let blog_disabled = if profile_data.blog_enable { "" } else { "disabled" };
-    html = html.replace("{{blog_url}}", &blog_url_escaped);
-    html = html.replace("{{blog_disabled}}", blog_disabled);
+    let note_url_escaped = html_escape(sanitize_url(&profile_data.note_url));
+    let note_disabled = if profile_data.note_enable { "" } else { "disabled" };
+    html = html.replace("{{note_url}}", &note_url_escaped);
+    html = html.replace("{{note_disabled}}", note_disabled);
     // 注入项目 HTML
     html = html.replace("{{projects_html}}", &projects_html);
     html = html.replace("{{about_items_html}}", &about_items_html);
