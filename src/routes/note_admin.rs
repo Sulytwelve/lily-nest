@@ -58,15 +58,9 @@ fn build_note_file_content(meta: &NoteFrontmatter, content: &str) -> String {
     format!("---\n{}---\n\n{}", toml_str, content)
 }
 
-async fn create_note(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<AdminNoteSaveRequest>,
-) -> Result<StatusCode, StatusCode> {
-    let now = Local::now();
-    let date_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
-    
-    // simple slug generation (safe for all filesystems)
-    let slug = payload.title.to_lowercase()
+/// 生成合法的文件系统 slug，纯特殊字符标题会 fallback 到 "untitled"
+fn slugify(title: &str) -> String {
+    let slug = title.to_lowercase()
         .replace(char::is_whitespace, "-")
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '-')
@@ -75,7 +69,18 @@ async fn create_note(
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-        
+    if slug.is_empty() { "untitled".to_string() } else { slug }
+}
+
+async fn create_note(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AdminNoteSaveRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let now = Local::now();
+    let date_str = now.to_rfc3339();
+
+    let slug = slugify(&payload.title);
+
     let date_prefix = now.format("%Y%m%d-%H%M%S").to_string();
     let filename = format!("{}-{}.md", date_prefix, slug);
     let filepath = format!("notes/{}", filename);
@@ -126,8 +131,8 @@ async fn update_note(
     };
 
     let now = Local::now();
-    let updated_at_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
-    
+    let updated_at_str = now.to_rfc3339();
+
     let meta = NoteFrontmatter {
         title: payload.title.clone(),
         date: old_date,
@@ -168,9 +173,10 @@ async fn delete_note(
 
     if let Some(filename) = filename {
         let filepath = format!("notes/{}", filename);
-        if let Err(e) = tokio::fs::remove_file(&filepath).await {
+        tokio::fs::remove_file(&filepath).await.map_err(|e| {
             tracing::error!("删除笔记文件失败 ({}): {}", filepath, e);
-        }
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
         let mut index = state.note_index.write().await;
         *index = crate::note_loader::load_all_notes().await;

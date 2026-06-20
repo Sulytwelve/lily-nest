@@ -17,7 +17,7 @@ pub struct HtmlCache {
 
 impl HtmlCache {
     pub fn new(started_at: SystemTime, body: Bytes, markdown_body: Bytes, html_cache_seconds: u32) -> Self {
-        let http_date_str = httpdate::fmt_http_date(started_at);
+        let http_date_str = crate::utils::fmt_http_date(started_at);
         let http_date = HeaderValue::try_from(http_date_str)
             .unwrap_or_else(|_| HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT"));
         let cc_str = format!("public, max-age={}", html_cache_seconds);

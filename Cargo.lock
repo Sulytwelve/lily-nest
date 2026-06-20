@@ -897,7 +897,6 @@ dependencies = [
  "bytes",
  "chrono",
  "flate2",
- "httpdate",
  "jsonwebtoken",
  "pulldown-cmark",
  "rand 0.10.1",

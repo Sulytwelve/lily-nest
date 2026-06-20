@@ -13,7 +13,6 @@ brotli = "8.0.4"
 bytes = "1"
 chrono = "0.4.45"
 flate2 = "1.1.9"
-httpdate = "1"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 pulldown-cmark = "0.13.4"
 rand = "0.10"

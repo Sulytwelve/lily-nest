@@ -102,7 +102,7 @@ async fn serve_static_file(
         .unwrap_or_else(|_| HeaderValue::from_static("public, max-age=3600"));
 
     if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE) {
-        if let Some(ims_time) = ims.to_str().ok().and_then(|v| httpdate::parse_http_date(v).ok()) {
+        if let Some(ims_time) = ims.to_str().ok().and_then(crate::utils::parse_http_date) {
             let modified_secs = modified.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             let ims_secs = ims_time.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             if modified_secs <= ims_secs {
@@ -120,7 +120,7 @@ async fn serve_static_file(
         Err(_) => return StatusCode::NOT_FOUND.into_response(),
     };
 
-    let last_modified = httpdate::fmt_http_date(modified);
+    let last_modified = crate::utils::fmt_http_date(modified);
     let mut res = Response::new(axum::body::Body::from(contents));
     res.headers_mut()
         .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));

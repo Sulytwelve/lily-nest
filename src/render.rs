@@ -1,4 +1,5 @@
 use crate::config::{load_about_items, load_changelog, load_projects, load_site_data, load_cloudflare_config};
+use crate::utils::{html_escape, sanitize_url};
 use std::fs;
 use tracing::error;
 
@@ -123,26 +124,6 @@ pub fn render_index() -> String {
     html = html.replace("{{web_analytics_script}}", &script);
 
     html
-}
-
-pub fn sanitize_url(url: &str) -> &str {
-    let url = url.trim();
-    if (url.starts_with("http://") || url.starts_with("https://"))
-        || (url.starts_with('/') && !url.starts_with("//"))
-    {
-        url
-    } else {
-        "#projects"
-    }
-}
-
-// 简单转义：用于插入到 HTML 文本节点/属性里
-pub fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 
 pub fn render_index_markdown() -> String {
