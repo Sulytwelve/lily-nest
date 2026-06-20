@@ -1,15 +1,56 @@
-use crate::model::{AboutList, AssetsConfig, ChangelogList, CloudflareConfig, HomeProfile, ProjectList, SecurityConfig, TlsConfig, SiteConfig, ServerConfig, MarkdownConfig};
-use serde::Deserialize;
+use crate::model::{
+    AboutList, AssetsConfig, ChangelogList, CloudflareConfig, HomeProfile, MarkdownConfig,
+    ProjectList, SecurityConfig, ServerConfig, SiteConfig, TlsConfig,
+};
+use serde::de::DeserializeOwned;
 use std::fs;
 use tracing::error;
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 struct SiteToml {
     #[serde(default)]
     profile: HomeProfile,
     #[serde(default)]
     site: SiteConfig,
 }
+
+// ── 复用边界 ──────────────────────────────────────────
+
+/// 读取整个 TOML 文件反序列化为 T（如 projects.toml → ProjectList）
+fn load_toml_file<T: DeserializeOwned + Default>(path: &str, label: &str) -> T {
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return T::default(),
+    };
+    toml::from_str::<T>(&content).unwrap_or_else(|e| {
+        error!("解析 {} 失败: {}, 使用默认{}配置", path, e, label);
+        T::default()
+    })
+}
+
+/// 从 config.toml 中提取 [section] 并反序列化为 T
+fn load_config_section<T: DeserializeOwned + Default>(section: &str, label: &str) -> T {
+    let content = fs::read_to_string("config.toml").unwrap_or_default();
+    let section_val = match toml::from_str::<toml::Value>(&content) {
+        Ok(full) => match full.get(section) {
+            Some(v) => v.clone(),
+            None => return T::default(),
+        },
+        Err(e) => {
+            if !content.is_empty() {
+                error!("解析 config.toml 失败: {}, 使用默认{}配置", e, label);
+            }
+            return T::default();
+        }
+    };
+    let section_str = toml::to_string(&section_val).unwrap_or_default();
+    toml::from_str::<T>(&section_str).unwrap_or_else(|e| {
+        error!("解析 [{}] 失败: {}, 使用默认{}配置", section, e, label);
+        T::default()
+    })
+}
+
+// ── 公开接口 ──────────────────────────────────────────
 
 pub fn load_site_data() -> (HomeProfile, SiteConfig) {
     let content = match fs::read_to_string("site.toml") {
@@ -32,79 +73,25 @@ pub fn load_site_profile() -> HomeProfile {
     load_site_data().0
 }
 
-
-
 pub fn load_projects() -> ProjectList {
-    // 尝试读取 projects.toml
-    let content = match std::fs::read_to_string("projects.toml") {
-        Ok(s) => s,
-        Err(_) => return ProjectList::default(), // 找不到文件，直接给默认值
-    };
-
-    // 尝试解析 TOML 内容
-    match toml::from_str::<ProjectList>(&content) {
-        Ok(list) => list,
-        Err(e) => {
-            error!("解析 projects.toml 失败: {}, 使用默认配置", e);
-            ProjectList::default()
-        }
-    }
+    load_toml_file::<ProjectList>("projects.toml", "项目")
 }
 
 pub fn load_about_items() -> AboutList {
-    // 尝试读取 about.toml
-    let content = match std::fs::read_to_string("about.toml") {
-        Ok(s) => s,
-        Err(_) => return AboutList::default(), // 找不到文件，直接给默认值
-    };
-
-    // 尝试解析 TOML 内容
-    match toml::from_str::<AboutList>(&content) {
-        Ok(list) => list,
-        Err(e) => {
-            error!("解析 about.toml 失败: {}, 使用默认配置", e);
-            AboutList::default()
-        }
-    }
+    load_toml_file::<AboutList>("about.toml", "关于")
 }
 
 pub fn load_changelog() -> ChangelogList {
-    let content = match std::fs::read_to_string("changelog.toml") {
-        Ok(s) => s,
-        Err(_) => return ChangelogList::default(),
-    };
-
-    match toml::from_str::<ChangelogList>(&content) {
-        Ok(list) => list,
-        Err(e) => {
-            error!("解析 changelog.toml 失败: {}, 使用默认配置", e);
-            ChangelogList::default()
-        }
-    }
+    load_toml_file::<ChangelogList>("changelog.toml", "更新日志")
 }
 
 pub fn load_server_config() -> ServerConfig {
-    let content = std::fs::read_to_string("config.toml").unwrap_or_default();
-
-    #[derive(Deserialize)]
-    struct Wrapper {
-        server: ServerConfig,
-    }
-
-    toml::from_str::<Wrapper>(&content)
-        .map(|w| w.server)
-        .unwrap_or_else(|e| {
-            if !content.is_empty() {
-                error!("警告: server 配置解析失败 ({}), 使用默认服务器配置", e);
-            }
-            ServerConfig::default()
-        })
+    load_config_section::<ServerConfig>("server", "服务器")
 }
 
 pub fn load_tls_config() -> Option<TlsConfig> {
     let content = fs::read_to_string("config.toml").ok()?;
-    // 局部 Wrapper，以便提取 [tls] 节
-    #[derive(Deserialize)]
+    #[derive(serde::Deserialize)]
     struct Wrapper {
         tls: TlsConfig,
     }
@@ -112,75 +99,19 @@ pub fn load_tls_config() -> Option<TlsConfig> {
 }
 
 pub fn load_security_config() -> SecurityConfig {
-    let content = std::fs::read_to_string("config.toml").unwrap_or_default();
-
-    #[derive(Deserialize)]
-    struct Wrapper {
-        security: SecurityConfig,
-    }
-
-    toml::from_str::<Wrapper>(&content)
-        .map(|w| w.security)
-        .unwrap_or_else(|e| {
-            if !content.is_empty() {
-                error!("警告: security 配置解析失败 ({}), 使用默认安全策略", e);
-            }
-            SecurityConfig::default()
-        })
+    load_config_section::<SecurityConfig>("security", "安全")
 }
 
 pub fn load_assets_config() -> AssetsConfig {
-    let content = std::fs::read_to_string("config.toml").unwrap_or_default();
-
-    #[derive(Deserialize)]
-    struct Wrapper {
-        assets: AssetsConfig,
-    }
-
-    toml::from_str::<Wrapper>(&content)
-        .map(|w| w.assets)
-        .unwrap_or_else(|e| {
-            if !content.is_empty() {
-                error!("警告: assets 配置解析失败 ({}), 使用默认压缩配置", e);
-            }
-            AssetsConfig::default()
-        })
+    load_config_section::<AssetsConfig>("assets", "压缩")
 }
 
 pub fn load_cloudflare_config() -> CloudflareConfig {
-    let content = std::fs::read_to_string("config.toml").unwrap_or_default();
-
-    #[derive(Deserialize)]
-    struct Wrapper {
-        cloudflare: Option<CloudflareConfig>,
-    }
-
-    toml::from_str::<Wrapper>(&content)
-        .map(|w| w.cloudflare.unwrap_or_default())
-        .unwrap_or_else(|e| {
-            if !content.is_empty() {
-                error!("警告: cloudflare 配置解析失败 ({}), 使用默认配置", e);
-            }
-            CloudflareConfig::default()
-        })
+    load_config_section::<CloudflareConfig>("cloudflare", "Cloudflare")
 }
 
 pub fn load_markdown_config() -> MarkdownConfig {
-    let content = std::fs::read_to_string("config.toml").unwrap_or_default();
-
-    #[derive(Deserialize)]
-    struct Wrapper {
-        markdown: Option<MarkdownConfig>,
-    }
-
-    toml::from_str::<Wrapper>(&content)
-        .map(|w| w.markdown.unwrap_or_default())
-        .unwrap_or_else(|e| {
-            if !content.is_empty() {
-                error!("警告: markdown 配置解析失败 ({}), 使用默认配置", e);
-            }
-            MarkdownConfig::default()
-        })
+    load_config_section::<MarkdownConfig>("markdown", "Markdown")
 }
 
 pub async fn get_editable_configs() -> Vec<String> {

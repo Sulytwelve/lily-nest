@@ -1,4 +1,5 @@
 use crate::config::{load_about_items, load_changelog, load_projects, load_site_data, load_cloudflare_config};
+use crate::utils::{html_escape, sanitize_url};
 use std::fs;
 use tracing::error;
 
@@ -100,10 +101,10 @@ pub fn render_index() -> String {
     html = html.replace("{{ver}}", &html_escape(&profile_data.site_version));
     html = html.replace("{{members_html}}", &members_html);
     html = html.replace("{{intro}}", &html_escape(&profile_data.intro));
-    let blog_url_escaped = html_escape(sanitize_url(&profile_data.blog_url));
-    let blog_disabled = if profile_data.blog_enable { "" } else { "disabled" };
-    html = html.replace("{{blog_url}}", &blog_url_escaped);
-    html = html.replace("{{blog_disabled}}", blog_disabled);
+    let note_url_escaped = html_escape(sanitize_url(&profile_data.note_url));
+    let note_disabled = if profile_data.note_enable { "" } else { "disabled" };
+    html = html.replace("{{note_url}}", &note_url_escaped);
+    html = html.replace("{{note_disabled}}", note_disabled);
     // 注入项目 HTML
     html = html.replace("{{projects_html}}", &projects_html);
     html = html.replace("{{about_items_html}}", &about_items_html);
@@ -123,26 +124,6 @@ pub fn render_index() -> String {
     html = html.replace("{{web_analytics_script}}", &script);
 
     html
-}
-
-pub fn sanitize_url(url: &str) -> &str {
-    let url = url.trim();
-    if (url.starts_with("http://") || url.starts_with("https://"))
-        || (url.starts_with('/') && !url.starts_with("//"))
-    {
-        url
-    } else {
-        "#projects"
-    }
-}
-
-// 简单转义：用于插入到 HTML 文本节点/属性里
-pub fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 
 pub fn render_index_markdown() -> String {

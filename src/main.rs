@@ -4,8 +4,10 @@ mod config;
 mod middlewares;
 mod model;
 mod routes;
+pub mod note_loader;
 pub mod render;
 pub mod state;
+pub mod utils;
 
 use axum_server::tls_rustls::RustlsConfig;
 use std::net::SocketAddr;
@@ -30,8 +32,13 @@ async fn main() {
         compressor::ensure_precompressed_assets(&assets_config);
     }
 
+    // 确保 notes/ 目录存在，避免首次创建笔记时失败
+    if let Err(e) = tokio::fs::create_dir_all("notes").await {
+        warn!("无法创建 notes/ 目录: {}", e);
+    }
+
     // 构建应用（路由、静态资源等）
-    let app = app::build_app();
+    let app = app::build_app().await;
 
     let server_config = config::load_server_config();
 

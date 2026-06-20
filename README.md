@@ -6,20 +6,29 @@
 - www.sulyhub.cn
 
 ## 项目简介
-梨窝是一个基于 Rust + Axum 的个人主页/作品集网站，支持项目动态加载、团队成员展示、深浅色主题等功能，界面采用 Material You 风格，支持响应式设计。
+梨窝是一个基于 Rust + Axum 的个人主页与技术分享网站。它不仅支持项目展示、团队成员和动态更新日志，还在 v0.3.0 引入了**「梨记」(lily-note)**——一个完全由纯 Markdown 文件驱动的轻量级个人笔记模块。
+界面采用 Material You 风格，原生支持深浅色系统主题与全响应式设计。
 
-当前版本已添加更明确的资源路由与应用路由定义，进一步强化静态资源服务与安全策略。
+当前版本进一步强化了纯文件管理的理念，通过无数据库的架构实现了极简运维，同时保留了极高的性能与安全防护。
 
 ## 技术指标
 在极低配置的嵌入式设备（如玩客云、香橙派等 armv7l 架构单板电脑）上，该项目展现出极致的系统开销与运行效率：
-- **极低内存常驻**：v0.2.9 冷启动实测仅需 **684 KB** 内存（峰值 **1.4 MB**）；v0.2.8 在玩客云（armv7l）上持续运行 5 天、经历多次后台配置写入后，常驻内存稳定在 **3.3 MB**（峰值 **4.3 MB**）。
-- **高并发与零分配**：核心页面与静态资源通过引用计数 `bytes::Bytes` 实现零堆分配、零拷贝（Zero-Copy）渲染。在 7840HS + Arch Linux 环境下，本地回路 QPS 飙升至 **65.6 万 (HTTP/1.1)** 与 **41.0 万 (HTTP/2)** 的极致吞吐。
-- **三级缓存优化**：通过内存级预编译缓存、HTTP Last-Modified/If-Modified-Since 的 304 协商响应，配合 CDN 缓存，最大化节省服务器与网卡开销。
-- **高度可控编译体积**：默认采用标准配置编译；在为受限目标环境（如玩客云）定制编译时，可通过手动开启 LTO（Link-Time Optimization）与符号裁剪，将 Release 二进制压缩至约 **5.0 MB** 后续可能随着项目扩展会变得更大。
 
-### 性能压测报告
-环境：Ryzen 7 7840HS + Arch Linux，`lily-nest` release + LTO + force-http 模式
-版本：0.2.8-beta
+### 内存占用（v0.2.8-beta 实测，v0.3.0 待测）
+
+- v0.2.9 冷启动实测仅需 **684 KB** 内存（峰值 **1.4 MB**）；v0.2.8 在玩客云（armv7l）上持续运行 5 天、经历多次后台配置写入后，常驻内存稳定在 **3.3 MB**（峰值 **4.3 MB**）。
+
+### 编译体积
+
+| 版本 | 编译器优化 | 二进制 | tar.xz |
+|:---|:---|:---|:---|
+| v0.2.8-beta | LTO + strip | ~5.0 MB | ~2.1MB |
+| v0.3.0 | LTO + strip + panic=abort + codegen-units=1 | 6.9 MB | 2.4 MB |
+
+> v0.3.0 因引入「梨记」笔记模块（pulldown-cmark、chrono、jsonwebtoken 等），体积略有增长。后续可通过进一步裁剪依赖或 feature flag 优化。
+
+### 性能压测报告（v0.2.8-beta，v0.3.0 待测）
+环境：Ryzen 7 7840HS + DDR5 32G 5600MT + Arch Linux，release + LTO + force-http 模式
 
 | 场景 | 工具 | 协议 | Req/s | 延迟 P50 | 延迟 P99 | 吞吐 |
 |:---|:---|:---|:---|:---|:---|:---|
@@ -33,7 +42,7 @@
 | Go/fasthttp `/health` (对比参考) | `wrk -t8 -c256`| HTTP/1.1 | 844,286 | 0.21ms | 2.57ms | — |
 | Go/fasthttp `/` (对比参考) | `wrk -t8 -c256`| HTTP/1.1 | 562,155 | 0.32ms | 4.14ms | — |
 
-Go版本是AI翻译当前Rust版本得来，只做参考，非生产产品。
+Go版本是CodeX翻译当前Rust版本得来，只做参考，非生产产品。
 ## 技术栈
 - Rust 2024
 - [Axum](https://github.com/tokio-rs/axum) Web 框架
@@ -45,9 +54,11 @@ Go版本是AI翻译当前Rust版本得来，只做参考，非生产产品。
 - 前端：原生 Material Design、@material/web 组件、本地 Material 3 主题 CSS
 
 ## 主要功能
+- **「梨记」轻量级笔记模块 (NEW!)**：无需数据库，文章全部以 `.md` 纯文本文件存储于 `notes/` 目录。
+- **笔记全文瞬时检索**：前端原生 JavaScript 提供零网络请求的标题、摘要与 `#标签` 秒级过滤。
 - 首页动态渲染（项目、团队成员、关于我、更新日志）
-- **HTML 片段模块化渲染**：采用 `templates/fragments/` 独立骨架片段，运行时动态拼装，实现样式/结构修改完全免除 Rust 源码重编译
-- **后台管理面板（/admin）：支持在线编辑 TOML 配置文件（site.toml, projects.toml, about.toml, changelog.toml 等）**
+- **HTML 片段模块化渲染**：采用 `templates/fragments/` 独立骨架片段，运行时动态拼装，免除 Rust 源码重编译
+- **强大的后台管理面板 (/admin)**：不仅支持在线编辑各项 TOML 配置，还内置了**在线 Markdown 编辑器**用于新建、修改、删除笔记文件，保存操作 100% 异步落盘。
 - 配置文件驱动（config.toml、site.toml、projects.toml、about.toml、changelog.toml）
 - config.toml 中的 [security] 块支持动态 CORS、CSP、Permissions Policy 及 **管理员密码** 配置
 - RESTful API（/api/v1/health、/api/v1/home/profile、/api/v1/admin/*、/api/v1/admin/login 登录接口）
@@ -75,41 +86,44 @@ lily-nest/
 ├── projects.toml             # 项目列表配置
 ├── about.toml                # 关于我列表配置
 ├── changelog.toml            # 更新日志配置
-├── MWC/                      # Material Web Components 构建环境（暂不打算上传至仓库）
+├── notes/                    # 「梨记」Markdown 笔记存储目录 (NEW!)
 ├── certs/                    # SSL 证书目录
 ├── src/
 │   ├── main.rs               # 应用入口
-│   ├── app.rs                # 路由编织与全局共享状态（含 JWT 密钥生成）
+│   ├── app.rs                # 路由编织与全局共享状态
 │   ├── state.rs              # 全局共享状态 AppState
 │   ├── routes/
-│   │   ├── mod.rs            # 路由模块定义
+│   │   ├── mod.rs            
 │   │   ├── home.rs           # 首页路由（含 304 支持）
-│   │   ├── api.rs            # 公开 RESTful API 路由（含 admin 路由与登录端点）
-│   │   ├── admin.rs           # 后台管理页面路由
-│   │   └── static_assets.rs  # 静态资源服务路由（含 Last-Modified + 304）
-│   ├── render.rs             # HTML 模板拼接渲染与片段模板动态加载
-│   ├── middlewares.rs        # 全局中间件（CORS、安全头及管理后台 JWT 签发与鉴权）
-│   ├── config.rs             # 配置文件解析加载（site, about, projects, changelog 等）
+│   │   ├── note.rs           # 「梨记」前台路由 (列表与详情)
+│   │   ├── note_admin.rs     # 「梨记」后台管理路由 (CRUD)
+│   │   ├── api.rs            # 公开 RESTful API 与通用配置保存
+│   │   ├── admin.rs          # 后台管理页面渲染路由
+│   │   └── static_assets.rs  # 静态资源路由
+│   ├── utils.rs              # 跨模块工具函数（HTTP日期、URL清洗、HTML转义）
+│   ├── render.rs             # HTML 模板拼接渲染
+│   ├── note_loader.rs        # 异步纯文件 Markdown 加载与 TOML 提取引擎
+│   ├── middlewares.rs        # 全局中间件（CORS、安全头及鉴权）
+│   ├── config.rs             # 配置文件解析
 │   ├── model.rs              # 数据模型定义
 │   ├── compressor.rs         # 静态资源预压缩工具
 ├── static/
 │   ├── css/
-│   │   ├── admin.css         # 后台自定义样式
-│   │   ├── user-theme.css    # 核心页面样式与更新日志时间轴样式
-│   │   └── ...
+│   │   ├── admin.css
+│   │   ├── user-theme.css
+│   │   └── note.css          # 梨记样式表
 │   ├── js/
-│   │   ├── admin.js          # 后台交互与 JWT 无状态鉴权逻辑
-│   │   ├── MaterialWeb.js    # 核心组件库（本地构建）
-│   │   └── ...
-├── templates/                 # HTML 模板目录
+│   │   ├── admin.js
+│   │   ├── MaterialWeb.js
+│   │   ├── note.js           # 梨记列表与前端检索逻辑
+│   │   └── note_detail.js    # 梨记详情页逻辑
+├── templates/
 │   ├── index.html            # 主页模板
 │   ├── admin.html            # 后台管理页面模板
+│   ├── note.html             # 梨记列表页模板
+│   ├── note_detail.html      # 梨记详情页模板
 │   └── fragments/            # HTML 渲染片段模板目录
-│       ├── project_item.html     # 项目展示条目模版
-│       ├── project_divider.html  # 项目条目分割线模版
-│       ├── about_item.html       # 关于我展示条目模版
-│       ├── member_button.html    # 团队成员按钮模版
-│       └── changelog_item.html   # 更新日志展示条目模版
+│       └── ...
 └── ...
 ```
 
@@ -206,7 +220,7 @@ lily-nest/
 这个项目，是梨梨用 Rust 一点点抠出来的。可能有人觉得它只是个普通的个人主页，但在你看不到的底层，梨梨花了很多心思。
 
 梨梨不想把它写得太夸张，但它在服务器上的表现确实让梨梨挺开心的：
-* **不爱占地方**：v0.2.9 刚启动时，它在玩客云上只吃 **684 KB** 内存（峰值 **1.4 MB**）；v0.2.8 在同一台 ARM 设备上连续跑了 5 天、后台写了好几次配置后，常驻内存稳在 **3.3 MB**（峰值 **4.3 MB**）。比那些动辄几十上百兆的大家伙要老实多了。
+* **不爱占地方（v0.2.8-beta 实测）**：v0.2.9 刚启动时，它在玩客云上只吃 **684 KB** 内存（峰值 **1.4 MB**）；v0.2.8 在同一台 ARM 设备上连续跑了 5 天、后台写了好几次配置后，常驻内存稳在 **3.3 MB**（峰值 **4.3 MB**）。比那些动辄几十上百兆的大家伙要老实多了。v0.3.0 待有空时重新测试。
 * **零拷贝与零堆分配**：主页渲染完就装在引用计数的 `bytes::Bytes` 里了。每次请求进来，它都是零分配、零拷贝地直接扔回给网卡，几乎没有多余的 CPU 消耗。
 * **只在必要时回源**：所有的缓存时间（HTML、API、CSS、JS、图片和字体）全都可以直接在 `config.toml` 里修改。不用重新编译，改完重启就行。
 * **搜索引擎验证**：项目已经把 Bing 的 `BingSiteAuth.xml` 路由验证写好了，Google 则是在 DNS 侧注入 TXT 记录或通过 Meta 头进行 GSC 索引认证。至于 Baidu 验证，在你克隆了项目后，把带随机字符的验证文件直接丢进 `static/` 目录就能用，写好了安全的泛路由，不需要重新编译。

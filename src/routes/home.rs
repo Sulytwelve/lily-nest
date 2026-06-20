@@ -118,7 +118,7 @@ async fn serve_markdown_or_debug(
 
 fn check_304(req: &axum::extract::Request, cache: &crate::state::HtmlCache) -> Option<Response> {
     if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE) {
-        if let Some(ims_time) = ims.to_str().ok().and_then(|v| httpdate::parse_http_date(v).ok()) {
+        if let Some(ims_time) = ims.to_str().ok().and_then(crate::utils::parse_http_date) {
             let ims_secs = ims_time.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             let started_at_secs = cache.started_at.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
             if ims_secs >= started_at_secs {

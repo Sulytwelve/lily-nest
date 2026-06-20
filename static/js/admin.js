@@ -350,4 +350,243 @@ document.addEventListener('DOMContentLoaded', () => {
             authDialog.show();
         }, 100);
     }
+
+    // ====== Navigation & Tabs ======
+    const viewConfig = document.getElementById('viewConfig');
+    const viewNote = document.getElementById('viewNote');
+    let notesLoaded = false;
+
+    function switchTab(tabName) {
+        if (tabName === 'config') {
+            viewConfig.style.display = 'block';
+            viewNote.style.display = 'none';
+            replaceWithTonal('navIndexBtn');
+            replaceWithText('navNoteBtn');
+        } else if (tabName === 'note') {
+            viewConfig.style.display = 'none';
+            viewNote.style.display = 'block';
+            replaceWithTonal('navNoteBtn');
+            replaceWithText('navIndexBtn');
+            if (!notesLoaded) loadNotes();
+        }
+    }
+
+    function replaceWithTonal(id) {
+        const el = document.getElementById(id);
+        if (el.tagName.toLowerCase() === 'md-filled-tonal-button') return;
+        const newEl = document.createElement('md-filled-tonal-button');
+        newEl.id = id;
+        newEl.innerHTML = el.innerHTML;
+        el.parentNode.replaceChild(newEl, el);
+        bindNavEvents();
+    }
+
+    function replaceWithText(id) {
+        const el = document.getElementById(id);
+        if (el.tagName.toLowerCase() === 'md-text-button') return;
+        const newEl = document.createElement('md-text-button');
+        newEl.id = id;
+        newEl.innerHTML = el.innerHTML;
+        el.parentNode.replaceChild(newEl, el);
+        bindNavEvents();
+    }
+
+    function bindNavEvents() {
+        document.getElementById('navIndexBtn').addEventListener('click', () => switchTab('config'));
+        document.getElementById('navNoteBtn').addEventListener('click', () => switchTab('note'));
+    }
+    bindNavEvents();
+
+    // ====== Notes Management ======
+    const notesContainer = document.getElementById('notesContainer');
+    const addNoteFab = document.getElementById('addNoteFab');
+    const editorOverlay = document.getElementById('editorOverlay');
+    const closeEditorBtn = document.getElementById('closeEditorBtn');
+    const saveNoteBtn = document.getElementById('saveNoteBtn');
+    const editTitle = document.getElementById('editTitle');
+    const tagInput = document.getElementById('tagInput');
+    const selectedTagsSet = document.getElementById('selectedTagsSet');
+    const availableTagsSet = document.getElementById('availableTagsSet');
+    const editExcerpt = document.getElementById('editExcerpt');
+    const editContent = document.getElementById('editContent');
+    const editorTitleText = document.getElementById('editorTitleText');
+
+    let currentEditingSlug = null;
+    let currentTags = [];
+    let allAvailableTags = new Set();
+
+    async function loadNotes() {
+        try {
+            const res = await apiFetch('/admin/notes');
+            const notes = await res.json();
+            notesLoaded = true;
+            renderNotes(notes);
+        } catch (e) {
+            console.warn('Failed to load notes', e);
+        }
+    }
+
+    function renderNotes(notes) {
+        if (!notesContainer) return;
+        notesContainer.innerHTML = '';
+        allAvailableTags.clear();
+
+        notes.forEach(note => {
+            (note.meta.tags || []).forEach(t => allAvailableTags.add(t));
+            
+            const card = document.createElement('div');
+            card.className = 'admin-note-card';
+            
+            const title = document.createElement('h3');
+            title.textContent = note.meta.title;
+            
+            const slug = document.createElement('div');
+            slug.style.fontSize = '0.85rem';
+            slug.style.color = 'var(--md-sys-color-outline)';
+            slug.textContent = note.meta.slug;
+
+            const actions = document.createElement('div');
+            actions.className = 'admin-note-actions';
+            
+            const editBtn = document.createElement('md-filled-tonal-button');
+            editBtn.textContent = '编辑';
+            editBtn.addEventListener('click', () => openEditor(note.meta.slug));
+            
+            const delBtn = document.createElement('md-outlined-button');
+            delBtn.textContent = '删除';
+            delBtn.className = 'delete-btn';
+            delBtn.addEventListener('click', () => deleteNote(note.meta.slug));
+
+            actions.appendChild(delBtn);
+            actions.appendChild(editBtn);
+            
+            card.appendChild(title);
+            card.appendChild(slug);
+            card.appendChild(actions);
+            notesContainer.appendChild(card);
+        });
+    }
+
+    async function deleteNote(slug) {
+        if (!confirm(`确定要删除 ${slug} 吗？`)) return;
+        try {
+            await apiFetch(`/admin/notes/${slug}`, { method: 'DELETE' });
+            loadNotes();
+        } catch (e) {
+            alert('删除出错');
+        }
+    }
+
+    async function openEditor(slug = null) {
+        currentEditingSlug = slug;
+        
+        editTitle.value = '';
+        tagInput.value = '';
+        currentTags = [];
+        editExcerpt.value = '';
+        editContent.value = '';
+        
+        if (slug) {
+            editorTitleText.textContent = '编辑梨记';
+            try {
+                const res = await apiFetch(`/admin/notes/${slug}`);
+                const data = await res.json();
+                editTitle.value = data.title || '';
+                currentTags = data.tags || [];
+                editExcerpt.value = data.excerpt || '';
+                editContent.value = data.content || '';
+            } catch (e) {
+                alert('加载出错');
+                return;
+            }
+        } else {
+            editorTitleText.textContent = '新建梨记';
+        }
+        
+        renderSelectedTags();
+        renderAvailableTags();
+        
+        editorOverlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function renderSelectedTags() {
+        selectedTagsSet.innerHTML = '';
+        currentTags.forEach(tag => {
+            const chip = document.createElement('md-input-chip');
+            chip.label = tag;
+            chip.addEventListener('remove', () => {
+                currentTags = currentTags.filter(t => t !== tag);
+                renderSelectedTags();
+            });
+            selectedTagsSet.appendChild(chip);
+        });
+    }
+
+    function renderAvailableTags() {
+        availableTagsSet.innerHTML = '';
+        allAvailableTags.forEach(tag => {
+            const chip = document.createElement('md-assist-chip');
+            chip.label = tag;
+            chip.addEventListener('click', () => {
+                if (!currentTags.includes(tag)) {
+                    currentTags.push(tag);
+                    renderSelectedTags();
+                }
+            });
+            availableTagsSet.appendChild(chip);
+        });
+    }
+
+    if (tagInput) {
+        tagInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const tag = tagInput.value.trim();
+                if (tag && !currentTags.includes(tag)) {
+                    currentTags.push(tag);
+                    renderSelectedTags();
+                }
+                tagInput.value = '';
+            }
+        });
+    }
+
+    function closeEditor() {
+        editorOverlay.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    if (addNoteFab) addNoteFab.addEventListener('click', () => openEditor(null));
+    if (closeEditorBtn) closeEditorBtn.addEventListener('click', closeEditor);
+
+    if (saveNoteBtn) {
+        saveNoteBtn.addEventListener('click', async () => {
+            saveNoteBtn.disabled = true;
+            
+            const payload = {
+                title: editTitle.value,
+                tags: currentTags,
+                excerpt: editExcerpt.value.trim() ? editExcerpt.value.trim() : null,
+                content: editContent.value,
+                original_slug: currentEditingSlug
+            };
+            
+            const method = currentEditingSlug ? 'PUT' : 'POST';
+            const url = currentEditingSlug ? `/admin/notes/${currentEditingSlug}` : '/admin/notes';
+            
+            try {
+                await apiFetch(url, {
+                    method,
+                    body: JSON.stringify(payload)
+                });
+                closeEditor();
+                loadNotes();
+            } catch (e) {
+                alert('保存出错: ' + e.message);
+            } finally {
+                saveNoteBtn.disabled = false;
+            }
+        });
+    }
 });

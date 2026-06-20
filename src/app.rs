@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use axum::{Router, middleware};
-use rand::RngCore;
+use rand::Rng;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
     state::AppState,
 };
 
-pub fn build_app() -> Router {
+pub async fn build_app() -> Router {
     let security_config = load_security_config();
     let assets_config = crate::config::load_assets_config();
     let markdown_config = crate::config::load_markdown_config();
@@ -38,6 +38,9 @@ pub fn build_app() -> Router {
         markdown_config: Arc::new(markdown_config),
         auth_rate_limiter: Mutex::new(HashMap::new()),
         jwt_secret,
+        note_index: RwLock::new(crate::note_loader::load_all_notes().await),
+        note_html_cache: RwLock::new(HashMap::new()),
+        note_list_html_cache: RwLock::new(None),
     });
 
 
@@ -48,6 +51,8 @@ pub fn build_app() -> Router {
     let app_routes = routes::home::router(state.clone())
         .nest("/api/v1", api_routes)
         .merge(routes::admin::router(state.clone()))
+        .merge(routes::note::router(state.clone()))
+        .merge(routes::note_admin::router(state.clone()))
         .layer(middleware::from_fn_with_state(state, security_headers));
 
     app_routes.merge(routes::static_assets::router())

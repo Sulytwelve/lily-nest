@@ -1,0 +1,240 @@
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+        min-height: 100vh; display: flex; flex-direction: column; 
+        font-family: system-ui, -apple-system, sans-serif;
+        background-color: var(--md-sys-color-surface);
+        color: var(--md-sys-color-on-surface);
+        scroll-behavior: smooth;
+    }
+    
+    /* 防止背景滚动的工具类 */
+    body.no-scroll { overflow: hidden; }
+
+    /* --- Top App Bar --- */
+    .top-app-bar {
+      height: 64px;
+      padding: 0 5vw;
+      display: flex;
+      align-items: center;
+      width: 100%;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .hero-section {
+      padding: 1rem 5vw 2rem;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* M3 官网同款的标题卡片 */
+    .hero-card {
+      background: var(--md-sys-color-secondary-container);
+      border-radius: 32px;
+      padding: 4rem 3rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .hero-title {
+      font-size: clamp(2.8rem, 7vw, 4.5rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      color: var(--md-sys-color-on-secondary-container);
+    }
+
+    .hero-subtitle {
+      font-size: 1.25rem;
+      color: var(--md-sys-color-on-secondary-container);
+      opacity: 0.85;
+      font-weight: 500;
+      max-width: 600px;
+      line-height: 1.5;
+    }
+
+    /* --- 主内容区与瀑布流 --- */
+    main {
+      flex: 1;
+      padding: 1rem 5vw 4rem;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .notes-grid {
+      column-count: 1;
+      column-gap: 1.5rem;
+    }
+    
+    @media (min-width: 768px) { .notes-grid { column-count: 2; } }
+    @media (min-width: 1024px) { .notes-grid { column-count: 3; } }
+    @media (min-width: 1440px) { .notes-grid { column-count: 4; } }
+
+    /* 规则圆角的填充型卡片 (Filled Card) */
+    .note-card {
+      break-inside: avoid;
+      margin-bottom: 1.5rem;
+      background: var(--md-sys-color-surface-variant);
+      border-radius: 28px;
+      padding: 1.75rem;
+      cursor: pointer;
+      border: none;
+      transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .note-card:hover {
+      transform: translateY(-4px);
+      filter: brightness(0.93); /* M3 状态层交互效果 */
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.05);
+    }
+
+    .card-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--md-sys-color-outline);
+    }
+
+    .note-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1.3;
+      color: var(--md-sys-color-on-surface);
+    }
+
+    .note-excerpt {
+      font-size: 1rem;
+      line-height: 1.6;
+      color: var(--md-sys-color-on-surface-variant);
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* 卡片底部的标签容器 */
+    .card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .tag {
+      background: var(--md-sys-color-secondary-container);
+      color: var(--md-sys-color-on-secondary-container);
+      padding: 0.25rem 0.75rem;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .empty-state {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 4rem 0;
+      color: var(--md-sys-color-outline);
+      font-size: 1.2rem;
+    }
+
+    /* --- 搜索悬浮按钮 (FAB) --- */
+    .search-fab {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      width: 72px;
+      height: 72px;
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px rgba(0, 108, 76, 0.2);
+      cursor: pointer;
+      border: none;
+      transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+      z-index: 100;
+    }
+
+    .search-fab svg {
+      width: 32px;
+      height: 32px;
+      transition: transform 0.3s ease;
+    }
+
+    .search-fab:hover {
+      border-radius: 36px;
+      background: var(--md-sys-color-primary);
+      color: var(--md-sys-color-on-primary);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 28px rgba(0, 108, 76, 0.3);
+    }
+
+    /* --- 沉浸式搜索遮罩 (Search Overlay) --- */
+    .search-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(251, 253, 249, 0.95);
+      backdrop-filter: blur(12px);
+      z-index: 900;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.98);
+      transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    .search-overlay.active {
+      opacity: 1;
+      pointer-events: all;
+      transform: scale(1);
+    }
+
+    .search-header {
+      padding: 2rem 5vw;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      border-bottom: 1px solid var(--md-sys-color-surface-variant);
+    }
+
+    .search-input-large {
+      flex: 1;
+      border: none;
+      background: transparent;
+      outline: none;
+      font-size: clamp(1.5rem, 4vw, 2.5rem);
+      font-weight: 700;
+      color: var(--md-sys-color-on-surface);
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    
+    .search-input-large::placeholder {
+      color: var(--md-sys-color-outline-variant);
+    }
+
+    .search-results-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2rem 5vw 6rem;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+

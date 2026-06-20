@@ -11,8 +11,8 @@ pub struct HomeProfile {
     pub team_members: Vec<String>, // ["User_1", "User_2"]
     pub site_version: String,      // 版本号
     pub intro: String,             // 自我介绍
-    pub blog_url: String,          // 博客地址
-    pub blog_enable: bool,         // 是否启用博客
+    pub note_url: String,          // 笔记地址
+    pub note_enable: bool,         // 是否启用笔记
 }
 
 #[derive(Debug, Serialize)]
@@ -30,8 +30,8 @@ impl Default for HomeProfile {
             team_members: vec!["User_1".into(), "User_2".into(), "User_3".into()],
             site_version: env!("CARGO_PKG_VERSION").to_string(),
             intro: "Hi！欢迎下滑探索我的项目～".to_string(),
-            blog_url: "https://sulyhub.cn".to_string(),
-            blog_enable: false,
+            note_url: "https://sulyhub.cn".to_string(),
+            note_enable: false,
         }
     }
 }
@@ -294,5 +294,33 @@ impl Default for SiteConfig {
             meta_desc: "梨窝 meta example".to_string(),
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NoteFrontmatter {
+    pub title: String,
+    pub date: String,
+    pub updated_at: Option<String>,
+    pub slug: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub excerpt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteSummary {
+    pub meta: NoteFrontmatter,
+    pub filename: String,
+    #[serde(default, skip_serializing)]
+    pub content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminNoteSaveRequest {
+    pub title: String,
+    pub tags: Vec<String>,
+    pub excerpt: Option<String>,
+    pub content: String,
+    pub original_slug: Option<String>,
 }
 

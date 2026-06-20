@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Instant, SystemTime};
 use tokio::sync::{Mutex, RwLock};
-use crate::model::{SecurityConfig, AssetsConfig, MarkdownConfig};
+use crate::model::{SecurityConfig, AssetsConfig, MarkdownConfig, NoteSummary};
 use std::sync::Arc;
 use bytes::Bytes;
 use axum::http::HeaderValue;
@@ -17,7 +17,7 @@ pub struct HtmlCache {
 
 impl HtmlCache {
     pub fn new(started_at: SystemTime, body: Bytes, markdown_body: Bytes, html_cache_seconds: u32) -> Self {
-        let http_date_str = httpdate::fmt_http_date(started_at);
+        let http_date_str = crate::utils::fmt_http_date(started_at);
         let http_date = HeaderValue::try_from(http_date_str)
             .unwrap_or_else(|_| HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT"));
         let cc_str = format!("public, max-age={}", html_cache_seconds);
@@ -41,4 +41,14 @@ pub struct AppState {
     pub auth_rate_limiter: Mutex<HashMap<String, Vec<Instant>>>,
     /// 启动时随机生成，重启后所有 token 自动失效
     pub jwt_secret: Vec<u8>,
+
+    // Notes
+    pub note_index: RwLock<Vec<NoteSummary>>,
+    pub note_html_cache: RwLock<HashMap<String, NoteHtmlCache>>,
+    pub note_list_html_cache: RwLock<Option<Bytes>>,
+}
+
+#[derive(Clone)]
+pub struct NoteHtmlCache {
+    pub body: Bytes,
 }
