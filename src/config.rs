@@ -1,6 +1,6 @@
 use crate::model::{
     AboutList, AssetsConfig, ChangelogList, CloudflareConfig, HomeProfile, MarkdownConfig,
-    ProjectList, SecurityConfig, ServerConfig, SiteConfig, TlsConfig,
+    ProjectList, SecurityConfig, ServerConfig, SiteConfig, TlsConfig, NoteConfig,
 };
 use serde::de::DeserializeOwned;
 use std::fs;
@@ -12,6 +12,8 @@ struct SiteToml {
     profile: HomeProfile,
     #[serde(default)]
     site: SiteConfig,
+    #[serde(default)]
+    note: NoteConfig,
 }
 
 // ── 复用边界 ──────────────────────────────────────────
@@ -52,19 +54,19 @@ fn load_config_section<T: DeserializeOwned + Default>(section: &str, label: &str
 
 // ── 公开接口 ──────────────────────────────────────────
 
-pub fn load_site_data() -> (HomeProfile, SiteConfig) {
+pub fn load_site_data() -> (HomeProfile, SiteConfig, NoteConfig) {
     let content = match fs::read_to_string("site.toml") {
         Ok(c) => c,
         Err(e) => {
             error!("提示: 未找到 site.toml ({}), 使用内置默认配置", e);
-            return (HomeProfile::default(), SiteConfig::default());
+            return (HomeProfile::default(), SiteConfig::default(), NoteConfig::default());
         }
     };
     match toml::from_str::<SiteToml>(&content) {
-        Ok(c) => (c.profile, c.site),
+        Ok(c) => (c.profile, c.site, c.note),
         Err(e) => {
             error!("解析 site.toml 失败: {}. 请检查格式是否正确。", e);
-            (HomeProfile::default(), SiteConfig::default())
+            (HomeProfile::default(), SiteConfig::default(), NoteConfig::default())
         }
     }
 }

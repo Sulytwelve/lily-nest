@@ -58,19 +58,7 @@ fn build_note_file_content(meta: &NoteFrontmatter, content: &str) -> String {
     format!("---\n{}---\n\n{}", toml_str, content)
 }
 
-/// 生成合法的文件系统 slug，纯特殊字符标题会 fallback 到 "untitled"
-fn slugify(title: &str) -> String {
-    let slug = title.to_lowercase()
-        .replace(char::is_whitespace, "-")
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '-')
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    if slug.is_empty() { "untitled".to_string() } else { slug }
-}
+
 
 async fn create_note(
     State(state): State<Arc<AppState>>,
@@ -79,7 +67,7 @@ async fn create_note(
     let now = Local::now();
     let date_str = now.to_rfc3339();
 
-    let slug = slugify(&payload.title);
+    let slug = now.format("%Y%m%d%H%M%S").to_string();
 
     let date_prefix = now.format("%Y%m%d-%H%M%S").to_string();
     let filename = format!("{}-{}.md", date_prefix, slug);

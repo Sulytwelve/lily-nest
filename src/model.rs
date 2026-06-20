@@ -297,6 +297,24 @@ impl Default for SiteConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
+pub struct NoteConfig {
+    pub note_title: String,
+    pub meta_desc: String,
+    pub meta_keywords: String,
+}
+
+impl Default for NoteConfig {
+    fn default() -> Self {
+        Self {
+            note_title: "梨记".to_string(),
+            meta_desc: "记录每一次进步".to_string(),
+            meta_keywords: "笔记, 博客, 梨记".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NoteFrontmatter {
     pub title: String,
     pub date: String,

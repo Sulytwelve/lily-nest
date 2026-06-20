@@ -42,8 +42,40 @@ fn format_date(date_str: &str) -> String {
         .unwrap_or_else(|_| date_str.to_string())
 }
 
-async fn handle_note_list(State(state): State<Arc<AppState>>) -> Response {
+async fn handle_note_list(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<NoteQuery>,
+    req: axum::extract::Request,
+) -> Response {
     reload_index_in_debug(&state).await;
+
+    let wants_markdown = query.format.as_deref() == Some("markdown") ||
+        req.headers().get(header::ACCEPT).and_then(|v| v.to_str().ok())
+        .map(|v| v.contains("text/markdown") || v.contains("text/x-markdown")).unwrap_or(false);
+
+    if wants_markdown {
+        let (_, _, note_config) = crate::config::load_site_data();
+        let notes = state.note_index.read().await;
+        
+        let mut md = String::new();
+        md.push_str(&format!("# {}\n\n", note_config.note_title));
+        md.push_str(&format!("> {}\n\n---\n\n", note_config.meta_desc));
+        
+        for note in notes.iter() {
+            let display_date = format_date(&note.meta.date);
+            md.push_str(&format!("*   **[{}](/note/{})** — {}\n", note.meta.title, note.meta.slug, display_date));
+            if let Some(excerpt) = &note.meta.excerpt {
+                let clean_excerpt = excerpt.replace('\n', " ");
+                md.push_str(&format!("    > {}\n", clean_excerpt));
+            }
+        }
+        
+        let mut res = Response::new(axum::body::Body::from(md));
+        res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/markdown; charset=utf-8"));
+        res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache, no-store, must-revalidate"));
+        res.headers_mut().insert(header::VARY, HeaderValue::from_static("Accept"));
+        return res;
+    }
 
     if let Some(cached) = state.note_list_html_cache.read().await.clone() {
         if !cfg!(debug_assertions) {
@@ -88,7 +120,12 @@ async fn handle_note_list(State(state): State<Arc<AppState>>) -> Response {
         .unwrap_or_else(|_| "[]".to_string())
         .replace("</script>", "<\\/script>");
 
+    let (_, _, note_config) = crate::config::load_site_data();
+
     let final_html = template
+        .replace("{{note_title}}", &crate::utils::html_escape(&note_config.note_title))
+        .replace("{{note_description}}", &crate::utils::html_escape(&note_config.meta_desc))
+        .replace("{{note_keywords}}", &crate::utils::html_escape(&note_config.meta_keywords))
         .replace("{{notes_html}}", &notes_html)
         .replace("{{notes_json}}", &notes_json);
 
@@ -167,8 +204,19 @@ async fn handle_note_detail(
                     String::new()
                 };
 
+                let excerpt_html = if let Some(excerpt) = &meta.excerpt {
+                    crate::utils::html_escape(excerpt)
+                } else {
+                    String::new()
+                };
+                
+                let keywords = meta.tags.join(", ");
+                let keywords_html = crate::utils::html_escape(&keywords);
+
                 let final_html = template
                     .replace("{{title}}", &crate::utils::html_escape(&meta.title))
+                    .replace("{{excerpt}}", &excerpt_html)
+                    .replace("{{keywords}}", &keywords_html)
                     .replace("{{date}}", &crate::utils::html_escape(&display_date))
                     .replace("{{updated_at_html}}", &updated_at_html)
                     .replace("{{content}}", &html_output);

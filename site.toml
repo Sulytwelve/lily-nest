@@ -11,3 +11,8 @@ note_enable = true
 [site]
 index_title = "Lily Nest example - 梨窝"
 meta_desc = "梨窝 meta example"
+
+[note]
+note_title = "Lily Note - 梨记"
+meta_desc = "梨窝的笔记列表 - 记录每一次进步 by Suly"
+meta_keywords = "Suly, 梨记, 笔记, 博客, Rust"

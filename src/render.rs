@@ -15,7 +15,7 @@ fn load_fragment(name: &str) -> String {
 }
 
 pub fn render_index() -> String {
-    let (profile_data, site_config) = load_site_data();
+    let (profile_data, site_config, _) = load_site_data();
     let projects_data = load_projects();
     let about_data = load_about_items();
     let cf_data = load_cloudflare_config();
@@ -127,7 +127,7 @@ pub fn render_index() -> String {
 }
 
 pub fn render_index_markdown() -> String {
-    let (profile_data, site_config) = load_site_data();
+    let (profile_data, site_config, _) = load_site_data();
     let projects_data = load_projects();
     let about_data = load_about_items();
     let changelog_data = load_changelog();
