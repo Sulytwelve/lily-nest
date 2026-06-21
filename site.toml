@@ -11,6 +11,10 @@ note_enable = true
 [site]
 index_title = "Lily Nest example - 梨窝"
 meta_desc = "梨窝 meta example"
+custom_head = """
+<!-- <link rel="canonical" href="https://www.sulyhub.cn/{{url_path}}" /> -->
+"""
+
 
 [note]
 note_title = "Lily Note - 梨记"

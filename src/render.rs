@@ -123,6 +123,10 @@ pub fn render_index() -> String {
     };
     html = html.replace("{{web_analytics_script}}", &script);
 
+    let raw_head = site_config.custom_head.as_deref().unwrap_or_default().trim();
+    let custom_head = raw_head.replace('\n', "\n    ").replace("{{url_path}}", "");
+    html = html.replace("{{custom_head}}", &custom_head);
+
     html
 }
 
