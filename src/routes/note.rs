@@ -19,6 +19,7 @@ struct NoteQuery {
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/note", get(handle_note_list))
+        .route("/note/", get(|| async { axum::response::Redirect::permanent("/note") }))
         .route("/note/{slug}", get(handle_note_detail))
         .with_state(state)
 }
