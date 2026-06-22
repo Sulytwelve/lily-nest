@@ -498,3 +498,25 @@ md-divider {
   font-family: monospace;
   margin-top: 12px;
 }
+
+/* ===== 页脚 ===== */
+.site-footer {
+  text-align: center;
+  padding: 32px 24px;
+  font-size: 0.85rem;
+  color: var(--md-sys-color-on-surface-variant);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  margin-top: 24px;
+}
+.site-footer a {
+  color: var(--md-sys-color-primary);
+  text-decoration: none;
+  margin: 0 8px;
+}
+.site-footer a:hover {
+  text-decoration: underline;
+}
+.site-footer.detail-footer {
+  margin-top: 48px;
+  border-top: 1px dashed var(--md-sys-color-outline-variant);
+}

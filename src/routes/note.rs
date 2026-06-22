@@ -126,13 +126,21 @@ async fn handle_note_list(
     let raw_head = site_config.custom_head.as_deref().unwrap_or_default().trim();
     let custom_head = raw_head.replace('\n', "\n    ").replace("{{url_path}}", "note");
 
+    let raw_footer = site_config.footer_html.as_deref().unwrap_or_default().trim();
+    let footer_html = if raw_footer.is_empty() {
+        "".to_string()
+    } else {
+        format!(r#"<footer class="site-footer">{}</footer>"#, raw_footer)
+    };
+
     let final_html = template
         .replace("{{note_title}}", &crate::utils::html_escape(&note_config.note_title))
         .replace("{{note_description}}", &crate::utils::html_escape(&note_config.meta_desc))
         .replace("{{note_keywords}}", &crate::utils::html_escape(&note_config.meta_keywords))
         .replace("{{notes_html}}", &notes_html)
         .replace("{{notes_json}}", &notes_json)
-        .replace("{{custom_head}}", &custom_head);
+        .replace("{{custom_head}}", &custom_head)
+        .replace("{{footer_html}}", &footer_html);
 
     let bytes = Bytes::from(final_html);
     if !cfg!(debug_assertions) {
@@ -222,6 +230,13 @@ async fn handle_note_detail(
                 let raw_head = site_config.custom_head.as_deref().unwrap_or_default().trim();
                 let custom_head = raw_head.replace('\n', "\n  ").replace("{{url_path}}", &format!("note/{}", slug));
 
+                let raw_footer = site_config.footer_html.as_deref().unwrap_or_default().trim();
+                let footer_html = if raw_footer.is_empty() {
+                    "".to_string()
+                } else {
+                    format!(r#"<footer class="site-footer detail-footer">{}</footer>"#, raw_footer)
+                };
+
                 let final_html = template
                     .replace("{{title}}", &crate::utils::html_escape(&meta.title))
                     .replace("{{excerpt}}", &excerpt_html)
@@ -229,7 +244,8 @@ async fn handle_note_detail(
                     .replace("{{date}}", &crate::utils::html_escape(&display_date))
                     .replace("{{updated_at_html}}", &updated_at_html)
                     .replace("{{content}}", &html_output)
-                    .replace("{{custom_head}}", &custom_head);
+                    .replace("{{custom_head}}", &custom_head)
+                    .replace("{{footer_html}}", &footer_html);
 
                 let bytes = Bytes::from(final_html);
 

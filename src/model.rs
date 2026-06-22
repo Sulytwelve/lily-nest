@@ -286,6 +286,7 @@ pub struct SiteConfig {
     pub index_title: String,
     pub meta_desc: String,
     pub custom_head: Option<String>,
+    pub footer_html: Option<String>,
 }
 
 impl Default for SiteConfig {
@@ -294,6 +295,7 @@ impl Default for SiteConfig {
             index_title: "Lily Nest example - 梨窝".to_string(),
             meta_desc: "梨窝 meta example".to_string(),
             custom_head: None,
+            footer_html: None,
         }
     }
 }

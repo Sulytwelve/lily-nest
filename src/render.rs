@@ -127,6 +127,14 @@ pub fn render_index() -> String {
     let custom_head = raw_head.replace('\n', "\n    ").replace("{{url_path}}", "");
     html = html.replace("{{custom_head}}", &custom_head);
 
+    let raw_footer = site_config.footer_html.as_deref().unwrap_or_default().trim();
+    let footer_html = if raw_footer.is_empty() {
+        "".to_string()
+    } else {
+        format!(r#"<footer class="site-footer">{}</footer>"#, raw_footer)
+    };
+    html = html.replace("{{footer_html}}", &footer_html);
+
     html
 }
 
