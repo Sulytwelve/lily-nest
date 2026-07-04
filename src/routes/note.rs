@@ -198,7 +198,14 @@ async fn handle_note_detail(
             }
 
             if let Some((meta, markdown_body)) = crate::note_loader::parse_note(&content) {
-                let parser = Parser::new(&markdown_body);
+                let mut options = pulldown_cmark::Options::empty();
+                options.insert(pulldown_cmark::Options::ENABLE_TABLES);
+                options.insert(pulldown_cmark::Options::ENABLE_MATH);
+                options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
+                options.insert(pulldown_cmark::Options::ENABLE_TASKLISTS);
+                options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
+                options.insert(pulldown_cmark::Options::ENABLE_SMART_PUNCTUATION);
+                let parser = Parser::new_ext(&markdown_body, options);
                 let mut html_output = String::new();
                 html::push_html(&mut html_output, parser);
 

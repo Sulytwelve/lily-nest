@@ -8,7 +8,7 @@ https_port = 8443
 
 [assets]
 precompress = false
-assets_dirs = ["./static/css", "./static/js", "./static/fonts"]
+assets_dirs = ["./static/css", "./static/css/vendor", "./static/css/vendor/fonts", "./static/js", "./static/js/vendor", "./static/fonts", "./static/fonts/vendor"]
 target_exts = ["css", "js", "woff", "woff2", "ttf", "otf"]
 compression_types = ["br"]                                      # ["zst", "br", "gz"]
 zstd_level = 3

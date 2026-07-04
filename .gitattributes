@@ -1,1 +1,7 @@
 static/js/MaterialWeb.js linguist-detectable=false
+static/js/vendor/** linguist-vendored
+static/js/vendor/** linguist-detectable=false
+static/css/vendor/** linguist-vendored
+static/css/vendor/** linguist-detectable=false
+static/fonts/vendor/** linguist-vendored
+static/fonts/vendor/** linguist-detectable=false

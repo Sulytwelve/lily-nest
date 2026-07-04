@@ -64,6 +64,20 @@
         `;
         containerElement.appendChild(card);
       });
+
+      if (window.renderMathInElement) {
+        try {
+          renderMathInElement(containerElement, {
+            delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false},
+              {left: '\\(', right: '\\)', display: false},
+              {left: '\\[', right: '\\]', display: true}
+            ],
+            throwOnError: false
+          });
+        } catch(e) {}
+      }
     }
 
     // --- 搜索遮罩逻辑 ---

@@ -321,3 +321,45 @@
     }
     
     .markdown-body img { max-width: 100%; border-radius: 12px; margin: 1.5rem 0; }
+
+    /* 表格样式 (Tables) */
+    .markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 2rem 0;
+      background: var(--md-sys-color-surface-variant, #202422);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      display: block;
+      overflow-x: auto;
+    }
+    .markdown-body th, .markdown-body td {
+      padding: 1rem 1.25rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .markdown-body th {
+      background: rgba(0,0,0,0.2);
+      color: var(--md-sys-color-primary, #a8c7fa);
+      font-weight: 600;
+      font-size: 0.95rem;
+      white-space: nowrap;
+    }
+    .markdown-body tr:last-child td {
+      border-bottom: none;
+    }
+    .markdown-body tr:hover td {
+      background: rgba(255,255,255,0.03);
+    }
+    
+    /* 公式样式调整 (KaTeX Math) */
+    .markdown-body .katex-display {
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 1rem 0;
+      margin: 1.5rem 0;
+    }
+    .markdown-body .katex {
+      font-size: 1.1em;
+    }

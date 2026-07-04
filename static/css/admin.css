@@ -1,4 +1,7 @@
 /* COMBINED ADMIN CSS */
+* {
+    box-sizing: border-box;
+}
 body {
     min-height: 100vh;
     display: flex;
@@ -212,6 +215,7 @@ textarea#editor:focus { border-color: var(--md-sys-color-primary); }
 .markdown-textarea {
     flex: 1;
     width: 100%;
+    box-sizing: border-box;
     min-height: 400px;
     padding: 16px;
     border-radius: 12px;

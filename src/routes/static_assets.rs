@@ -12,15 +12,25 @@ use tower_http::{
 
 pub fn router() -> Router {
     let assets_config = crate::config::load_assets_config();
-    let mut css_service = ServeDir::new("./static/css");
-    let mut js_service = ServeDir::new("./static/js");
-    let mut fonts_service = ServeDir::new("./static/fonts");
+    let mut css_dir = ServeDir::new("./static/css");
+    let mut css_vendor = ServeDir::new("./static/css/vendor");
+    let mut js_dir = ServeDir::new("./static/js");
+    let mut js_vendor = ServeDir::new("./static/js/vendor");
+    let mut fonts_dir = ServeDir::new("./static/fonts");
+    let mut fonts_vendor = ServeDir::new("./static/fonts/vendor");
 
     if assets_config.precompress {
-        css_service = css_service.precompressed_zstd().precompressed_br().precompressed_gzip();
-        js_service = js_service.precompressed_zstd().precompressed_br().precompressed_gzip();
-        fonts_service = fonts_service.precompressed_zstd().precompressed_br().precompressed_gzip();
+        css_dir = css_dir.precompressed_zstd().precompressed_br().precompressed_gzip();
+        css_vendor = css_vendor.precompressed_zstd().precompressed_br().precompressed_gzip();
+        js_dir = js_dir.precompressed_zstd().precompressed_br().precompressed_gzip();
+        js_vendor = js_vendor.precompressed_zstd().precompressed_br().precompressed_gzip();
+        fonts_dir = fonts_dir.precompressed_zstd().precompressed_br().precompressed_gzip();
+        fonts_vendor = fonts_vendor.precompressed_zstd().precompressed_br().precompressed_gzip();
     }
+
+    let css_service = css_dir.fallback(css_vendor);
+    let js_service = js_dir.fallback(js_vendor);
+    let fonts_service = fonts_dir.fallback(fonts_vendor);
 
     let root_files = Router::new()
         .route("/robots.txt", get(serve_robots))

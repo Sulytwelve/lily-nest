@@ -13,6 +13,36 @@
   <script type="module" src="/js/MaterialWeb.js"></script>
   <script src="/js/note_detail.js" defer></script>
   <link rel="stylesheet" href="/css/note.css">
+
+  <!-- Highlight.js 代码高亮 -->
+  <link rel="stylesheet" href="/css/vendor/atom-one-dark.min.css">
+  <script src="/js/vendor/highlight.min.js"></script>
+  <!-- KaTeX 数学公式渲染 -->
+  <link rel="stylesheet" href="/css/vendor/katex.min.css">
+  <script defer src="/js/vendor/katex.min.js"></script>
+  <script defer src="/js/vendor/katex-auto-render.min.js"
+      onload="renderMathInElement(document.body, {
+          delimiters: [
+              {left: '$$', right: '$$', display: true},
+              {left: '$', right: '$', display: false},
+              {left: '\\(', right: '\\)', display: false},
+              {left: '\\[', right: '\\]', display: true}
+          ],
+          throwOnError: false
+      });"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.hljs) hljs.highlightAll();
+      if (window.katex) {
+        document.querySelectorAll('.math-inline').forEach(el => {
+          try { katex.render(el.textContent, el, { displayMode: false, throwOnError: false }); } catch(e){}
+        });
+        document.querySelectorAll('.math-display').forEach(el => {
+          try { katex.render(el.textContent, el, { displayMode: true, throwOnError: false }); } catch(e){}
+        });
+      }
+    });
+  </script>
 </head>
 <body>
   <div class="reader-header">

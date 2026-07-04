@@ -213,8 +213,12 @@ impl Default for AssetsConfig {
             precompress: false,
             assets_dirs: vec![
                 "./static/css".to_string(),
+                "./static/css/vendor".to_string(),
+                "./static/css/vendor/fonts".to_string(),
                 "./static/js".to_string(),
+                "./static/js/vendor".to_string(),
                 "./static/fonts".to_string(),
+                "./static/fonts/vendor".to_string(),
             ],
             target_exts: vec![
                 "css".to_string(),
