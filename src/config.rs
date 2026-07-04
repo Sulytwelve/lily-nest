@@ -127,5 +127,7 @@ pub async fn get_editable_configs() -> Vec<String> {
             }
         }
     }
+    editable.push("sitemap.xml".to_string());
+    editable.sort();
     editable
 }

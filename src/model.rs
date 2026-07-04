@@ -272,11 +272,16 @@ pub struct AdminLoginRequest {
 pub struct AdminLoginResponse {
     pub token: String,
     pub expires_at: u64,
+    pub role: String,
+    pub name: String,
 }
 
+/// 统一的 JWT 认证数据结构，支持显式角色与昵称
 #[derive(Debug, Serialize, Deserialize)]
-pub struct JwtClaims {
-    pub sub: String,
+pub struct AuthClaims {
+    pub sub: String,   // "admin" 或用户标识
+    pub name: String,  // 昵称/展示名字
+    pub role: String,  // "admin" 等角色标识
     pub exp: u64,
 }
 

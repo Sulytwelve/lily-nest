@@ -14,13 +14,13 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info, warn};
 
 use crate::{
-    model::{AdminLoginRequest, AdminLoginResponse, JwtClaims, SecurityConfig},
+    model::{AdminLoginRequest, AdminLoginResponse, AuthClaims, SecurityConfig},
     state::AppState,
 };
 
 pub fn build_cors_layer(security_config: &SecurityConfig) -> CorsLayer {
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
     if security_config.allow_origins.contains(&"*".to_string()) {
@@ -286,8 +286,10 @@ pub async fn handle_admin_login(
         .as_secs();
     let expires_at = now_secs + expiry_secs;
 
-    let claims = JwtClaims {
+    let claims = AuthClaims {
         sub: "admin".to_string(),
+        name: "管理员".to_string(),
+        role: "admin".to_string(),
         exp: expires_at,
     };
 
@@ -308,7 +310,12 @@ pub async fn handle_admin_login(
         client_ip, expires_at
     );
 
-    Json(AdminLoginResponse { token, expires_at }).into_response()
+    Json(AdminLoginResponse {
+        token,
+        expires_at,
+        role: "admin".to_string(),
+        name: "管理员".to_string(),
+    }).into_response()
 }
 
 /// admin_auth_middleware — 只验 Bearer JWT，不再接受密码 header
@@ -330,21 +337,90 @@ pub async fn admin_auth_middleware(
         }
     };
 
-    let mut validation = Validation::new(Algorithm::HS256);
-    validation.sub = Some("admin".to_string());
+    let validation = Validation::new(Algorithm::HS256);
 
-    match decode::<JwtClaims>(
+    match decode::<AuthClaims>(
         &token,
         &DecodingKey::from_secret(&state.jwt_secret),
         &validation,
     ) {
-        Ok(_) => {
-            // Token 有效，放行
+        Ok(data) if data.claims.role == "admin" => {
+            // Token 有效且角色为 admin，放行
             next.run(req).await
+        }
+        Ok(_) => {
+            warn!("Admin JWT validation failed: role is not admin");
+            (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
         }
         Err(e) => {
             warn!("Admin JWT validation failed: {}", e);
             (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
         }
     }
+}
+
+/// note_auth_middleware — 笔记与发文专线鉴权中间件
+/// 支持两种认证机制：
+/// 1. Admin / Agent 使用常规 HS256 JWT（本地 jwt_secret）
+/// 2. Agent 使用 Ed25519 / RS256 签名的 JWT（本地 .agent.pub 公钥验签），完全免除密码与 cf-trace
+pub async fn note_auth_middleware(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+    next: middleware::Next,
+) -> Response {
+    let token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+
+    let token = match token {
+        Some(t) => t.to_string(),
+        None => {
+            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        }
+    };
+
+    // 1. 优先尝试用本地 HS256 密钥解密（适用于 Web 端登录的 admin 角色，或使用对称密钥的 agent）
+    let validation_hs256 = Validation::new(Algorithm::HS256);
+    if let Ok(data) = decode::<AuthClaims>(
+        &token,
+        &DecodingKey::from_secret(&state.jwt_secret),
+        &validation_hs256,
+    ) {
+        if data.claims.role == "admin" || data.claims.role == "agent" {
+            return next.run(req).await;
+        } else {
+            warn!("Note API request rejected: role '{}' is neither admin nor agent", data.claims.role);
+            return (StatusCode::FORBIDDEN, "Forbidden: insufficient role").into_response();
+        }
+    }
+
+    // 2. 尝试用服务器保存的 Agent 公钥（.agent.pub / LILY_AGENT_PUB_KEY）进行非对称验签
+    if let Some(ref pub_key_bytes) = state.agent_pub_key {
+        let mut validation_asym = Validation::new(Algorithm::EdDSA);
+        validation_asym.algorithms = vec![Algorithm::EdDSA, Algorithm::RS256, Algorithm::RS384, Algorithm::RS512];
+
+        let decoding_key = DecodingKey::from_ed_pem(pub_key_bytes)
+            .or_else(|_| DecodingKey::from_rsa_pem(pub_key_bytes));
+
+        if let Ok(key) = decoding_key {
+            if let Ok(data) = decode::<AuthClaims>(&token, &key, &validation_asym) {
+                if data.claims.role == "agent" || data.claims.role == "admin" {
+                    info!("Agent public key authentication successful for sub: {}", data.claims.sub);
+                    return next.run(req).await;
+                } else {
+                    warn!("Agent JWT valid but role '{}' is not allowed", data.claims.role);
+                    return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+                }
+            } else {
+                warn!("Agent public key signature verification failed for token");
+            }
+        } else {
+            warn!("Failed to parse agent public key from PEM format (must be Ed25519 or RSA PEM)");
+        }
+    }
+
+    warn!("Note API authentication failed: invalid token or signature");
+    (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
 }

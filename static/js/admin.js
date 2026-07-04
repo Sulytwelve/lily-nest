@@ -16,9 +16,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let securityQuestions = [];
 
-    // JWT token 存在 sessionStorage，关闭 tab 即失效
-    let jwtToken = sessionStorage.getItem('admin_jwt') || '';
-    let jwtExpiresAt = parseInt(sessionStorage.getItem('admin_jwt_expires_at') || '0', 10);
+    // Migrate old token keys to unified keys
+    (function migrateTokens() {
+        if (sessionStorage.getItem('auth_jwt')) return;
+        const oldToken = sessionStorage.getItem('admin_jwt');
+        if (oldToken) {
+            sessionStorage.setItem('auth_jwt', oldToken);
+            sessionStorage.setItem('auth_role', 'admin');
+            sessionStorage.setItem('auth_name', '管理员');
+            sessionStorage.setItem('auth_expires_at', sessionStorage.getItem('admin_jwt_expires_at') || '0');
+            sessionStorage.removeItem('admin_jwt');
+            sessionStorage.removeItem('admin_jwt_expires_at');
+        }
+    })();
+
+    // JWT token 存在 sessionStorage，关闭 tab 即失效（统一 auth 键）
+    let jwtToken = sessionStorage.getItem('auth_jwt') || '';
+    let jwtExpiresAt = parseInt(sessionStorage.getItem('auth_expires_at') || '0', 10);
 
     let currentFile = '';
     let rawCfTrace = '';
@@ -48,8 +62,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function clearToken() {
         jwtToken = '';
         jwtExpiresAt = 0;
-        sessionStorage.removeItem('admin_jwt');
-        sessionStorage.removeItem('admin_jwt_expires_at');
+        sessionStorage.removeItem('auth_jwt');
+        sessionStorage.removeItem('auth_role');
+        sessionStorage.removeItem('auth_name');
+        sessionStorage.removeItem('auth_expires_at');
     }
 
     (function initAuthConfig() {
@@ -187,8 +203,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = await response.json();
         jwtToken = data.token;
         jwtExpiresAt = data.expires_at;
-        sessionStorage.setItem('admin_jwt', jwtToken);
-        sessionStorage.setItem('admin_jwt_expires_at', String(jwtExpiresAt));
+        // 统一 auth 存储
+        sessionStorage.setItem('auth_jwt', jwtToken);
+        sessionStorage.setItem('auth_role', data.role || 'admin');
+        sessionStorage.setItem('auth_name', data.name || '管理员');
+        sessionStorage.setItem('auth_expires_at', String(jwtExpiresAt));
     }
 
     // 带 JWT 的通用 API 请求

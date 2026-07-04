@@ -17,3 +17,5 @@
 /static/**/*.br
 /static/**/*.gz
 /static/**/*.zst
+/.jwt_secret
+/.agent*

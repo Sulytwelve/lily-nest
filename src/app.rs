@@ -16,9 +16,31 @@ pub async fn build_app() -> Router {
     let assets_config = crate::config::load_assets_config();
     let markdown_config = crate::config::load_markdown_config();
 
-    // 每次启动生成新的随机 secret，重启后所有 JWT 自动失效
-    let mut jwt_secret = vec![0u8; 64];
-    rand::rng().fill_bytes(&mut jwt_secret);
+    // 优先从环境变量 LILY_JWT_SECRET 或本地 .jwt_secret 文件加载，保证重启后会话持久
+    let jwt_secret = if let Ok(sec) = std::env::var("LILY_JWT_SECRET") {
+        sec.into_bytes()
+    } else {
+        let secret_path = std::path::Path::new(".jwt_secret");
+        if secret_path.exists() {
+            std::fs::read(secret_path).unwrap_or_else(|_| {
+                let mut new_sec = vec![0u8; 64];
+                rand::rng().fill_bytes(&mut new_sec);
+                let _ = std::fs::write(secret_path, &new_sec);
+                new_sec
+            })
+        } else {
+            let mut new_sec = vec![0u8; 64];
+            rand::rng().fill_bytes(&mut new_sec);
+            let _ = std::fs::write(secret_path, &new_sec);
+            new_sec
+        }
+    };
+
+    // 优先从环境变量 LILY_AGENT_PUB_KEY 或本地 .agent.pub 读取 Agent 公钥
+    let agent_pub_key = std::env::var("LILY_AGENT_PUB_KEY")
+        .ok()
+        .map(|s| s.into_bytes())
+        .or_else(|| std::fs::read(".agent.pub").ok());
 
     let markdown_bytes = if markdown_config.enable {
         crate::render::render_index_markdown().into()
@@ -27,6 +49,7 @@ pub async fn build_app() -> Router {
     };
 
     let state = Arc::new(AppState {
+        agent_pub_key,
         html_cache: RwLock::new(crate::state::HtmlCache::new(
             SystemTime::now(),
             crate::render::render_index().into(),

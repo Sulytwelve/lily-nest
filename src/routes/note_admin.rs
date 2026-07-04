@@ -15,9 +15,12 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/admin/notes", get(list_notes).post(create_note))
         .route("/admin/notes/{slug}", get(get_note).put(update_note).delete(delete_note))
+        // 预留给 Agent 调用的无 /admin 前缀 REST API
+        .route("/api/v1/notes", get(list_notes).post(create_note))
+        .route("/api/v1/notes/{slug}", get(get_note).put(update_note).delete(delete_note))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
-            crate::middlewares::admin_auth_middleware,
+            crate::middlewares::note_auth_middleware,
         ))
         .with_state(state)
 }

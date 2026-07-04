@@ -39,8 +39,10 @@ pub struct AppState {
     pub assets_config: Arc<AssetsConfig>,
     pub markdown_config: Arc<MarkdownConfig>,
     pub auth_rate_limiter: Mutex<HashMap<String, Vec<Instant>>>,
-    /// 启动时随机生成，重启后所有 token 自动失效
+    /// 优先从环境变量 LILY_JWT_SECRET 或本地 .jwt_secret 文件加载，保证重启后会话持久
     pub jwt_secret: Vec<u8>,
+    /// Agent 公钥（优先 .agent.pub，支持 Ed25519 或 RSA 非对称 JWT 验签）
+    pub agent_pub_key: Option<Vec<u8>>,
 
     // Notes
     pub note_index: RwLock<Vec<NoteSummary>>,
