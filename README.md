@@ -137,27 +137,55 @@ lily-nest/
 
 > **安全提示**：在 Debug 模式（HTTP）下，密码以明文传输，仅建议在本地开发环境使用。在生产环境（Release 模式）下，必须配置 HTTPS 以确保传输加密。
 
-## 「梨记」自动化发文与 Agent 接口 (/api/v1/notes)
-项目为了支持自动化程序、AI 助手（Agent）或 CI/CD 脚本直接发布与管理博客文章，预留了一套完全脱离浏览器端「密码 + 密保 + cf-trace」的**非对称公私钥鉴权专线**：
+## 「梨记」自动化发文与 Agent 接口 (`/api/v1/notes`)
 
-### 1. 认证机制与密钥保管
-- **公钥服务端保存**：由管理员自行生成 Ed25519 或 RSA 密钥对，将公钥改名为 `.agent.pub`（或通过环境变量 `LILY_AGENT_PUB_KEY` 配置）放于项目根目录。
-- **私钥 Agent 保管**：私钥（如 `agent.key`）由管理员自留并授予对应的自动化程序/发文脚本保管。即使服务器遭遇任意文件读取漏洞导致公钥或配置外泄，攻击者没有发文环境本地的私钥也无法伪造发文。
+项目预留了一套完全脱离浏览器端「密码 + 密保 + cf-trace」的 **非对称公私钥鉴权专线**，供自动化程序、AI 助手或 CI/CD 脚本直接发布与管理博客文章。
 
-### 2. 接口调用说明 (REST API)
-Agent 发起请求时，只需用**私钥**本地签发一个临时 JWT（声明 `role: "agent"`，建议 `exp` 设置为 5 分钟），携带在请求头中即可调通所有发文与管理接口：
-```http
-Authorization: Bearer <生成的非对称加密JWT>
+### 1. 密钥生成与部署
+
+生成 Ed25519 密钥对（PEM 格式），服务端仅接受 **EdDSA（Ed25519）** 算法：
+
+```bash
+openssl genpkey -algorithm ed25519 -out agent.key
+openssl pkey -in agent.key -pubout -out agent.pub
 ```
 
-**支持的接口列表：**
-- `POST /api/v1/notes` —— 创建新文章（JSON Payload：`{"title": "文章标题", "tags": ["标签1"], "excerpt": "摘要", "content": "Markdown正文"}`）
-- `GET /api/v1/notes` —— 获取全部文章列表
-- `GET /api/v1/notes/{slug}` —— 获取指定文章的详情与编辑结构
-- `PUT /api/v1/notes/{slug}` —— 更新指定文章
-- `DELETE /api/v1/notes/{slug}` —— 删除指定文章
+将 `agent.pub` 改名为 `.agent.pub` 放到项目根目录（或通过环境变量 `LILY_AGENT_PUB_KEY` 配置）。`agent.key` 由 Agent 脚本持有，用于签发 JWT。
 
-> **提示**：所有对 `/api/v1/notes` 的增删改操作在异步写入纯 Markdown 文本文件后，会自动触发服务端内存缓存与搜索索引的重载，无需重启服务即可即时生效。
+### 2. 认证方式
+
+请求头携带 EdDSA 签名的 JWT：
+
+```
+Authorization: Bearer <JWT>
+```
+
+JWT 载荷需包含以下声明：
+
+| 字段 | 值 | 说明 |
+|------|----|------|
+| `sub` | 任意标识 | 主题（如 `"agent"`） |
+| `name` | 显示名称 | 昵称 |
+| `role` | `"agent"` | 必须为 `agent` 或 `admin` |
+| `exp` | Unix 时间戳 | 建议 5 分钟有效期 |
+
+### 3. 接口列表
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/v1/notes` | 获取全部文章列表 |
+| `GET` | `/api/v1/notes/{slug}` | 获取指定文章的详情与编辑结构 |
+| `POST` | `/api/v1/notes` | 创建新文章 |
+| `PUT` | `/api/v1/notes/{slug}` | 更新指定文章 |
+| `DELETE` | `/api/v1/notes/{slug}` | 删除指定文章 |
+
+`POST` / `PUT` 请求体格式：
+
+```json
+{"title": "文章标题", "tags": ["标签1"], "excerpt": "摘要", "content": "Markdown正文"}
+```
+
+> 所有增删改操作会自动触发服务端内存缓存与搜索索引重载，无需重启服务。
 
 ## 启动方式
 

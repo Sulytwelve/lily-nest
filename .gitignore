@@ -11,6 +11,7 @@
 /static/favicon.ico
 /static/robots.txt
 /static/sitemap.xml
+/static/fonts/vendor/
 /certs/*
 !certs/example*
 

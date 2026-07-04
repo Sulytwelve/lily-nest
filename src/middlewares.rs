@@ -398,8 +398,7 @@ pub async fn note_auth_middleware(
 
     // 2. 尝试用服务器保存的 Agent 公钥（.agent.pub / LILY_AGENT_PUB_KEY）进行非对称验签
     if let Some(ref pub_key_bytes) = state.agent_pub_key {
-        let mut validation_asym = Validation::new(Algorithm::EdDSA);
-        validation_asym.algorithms = vec![Algorithm::EdDSA, Algorithm::RS256, Algorithm::RS384, Algorithm::RS512];
+        let validation_asym = Validation::new(Algorithm::EdDSA);
 
         let decoding_key = DecodingKey::from_ed_pem(pub_key_bytes)
             .or_else(|_| DecodingKey::from_rsa_pem(pub_key_bytes));
