@@ -52,16 +52,16 @@ async fn get_note(
 
     if let Some(filename) = filename {
         let file_path = format!("notes/{}", filename);
-        if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
-            if let Some((meta, markdown_body)) = crate::note_loader::parse_note(&content) {
-                return Ok(Json(AdminNoteSaveRequest {
-                    title: meta.title,
-                    tags: meta.tags,
-                    excerpt: meta.excerpt,
-                    content: markdown_body.trim().to_string(),
-                    original_slug: Some(meta.slug),
-                }));
-            }
+        if let Ok(content) = tokio::fs::read_to_string(&file_path).await
+            && let Some((meta, markdown_body)) = crate::note_loader::parse_note(&content)
+        {
+            return Ok(Json(AdminNoteSaveRequest {
+                title: meta.title,
+                tags: meta.tags,
+                excerpt: meta.excerpt,
+                content: markdown_body.trim().to_string(),
+                original_slug: Some(meta.slug),
+            }));
         }
     }
     Err(StatusCode::NOT_FOUND)
@@ -71,10 +71,10 @@ fn validate_note_payload(payload: &AdminNoteSaveRequest) -> Result<(), StatusCod
     if payload.title.is_empty() || payload.title.chars().count() > 200 {
         return Err(StatusCode::BAD_REQUEST);
     }
-    if let Some(excerpt) = payload.excerpt.as_deref() {
-        if excerpt.chars().count() > 500 {
-            return Err(StatusCode::BAD_REQUEST);
-        }
+    if let Some(excerpt) = payload.excerpt.as_deref()
+        && excerpt.chars().count() > 500
+    {
+        return Err(StatusCode::BAD_REQUEST);
     }
     if payload.tags.len() > 20 {
         return Err(StatusCode::BAD_REQUEST);

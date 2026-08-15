@@ -5,10 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use tower_http::{
-    services::ServeDir,
-    set_header::SetResponseHeaderLayer,
-};
+use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
 pub fn router() -> Router {
     let assets_config = crate::config::load_assets_config();
@@ -20,12 +17,30 @@ pub fn router() -> Router {
     let mut fonts_vendor = ServeDir::new("./static/fonts/vendor");
 
     if assets_config.precompress {
-        css_dir = css_dir.precompressed_zstd().precompressed_br().precompressed_gzip();
-        css_vendor = css_vendor.precompressed_zstd().precompressed_br().precompressed_gzip();
-        js_dir = js_dir.precompressed_zstd().precompressed_br().precompressed_gzip();
-        js_vendor = js_vendor.precompressed_zstd().precompressed_br().precompressed_gzip();
-        fonts_dir = fonts_dir.precompressed_zstd().precompressed_br().precompressed_gzip();
-        fonts_vendor = fonts_vendor.precompressed_zstd().precompressed_br().precompressed_gzip();
+        css_dir = css_dir
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        css_vendor = css_vendor
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        js_dir = js_dir
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        js_vendor = js_vendor
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        fonts_dir = fonts_dir
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        fonts_vendor = fonts_vendor
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
     }
 
     let css_service = css_dir.fallback(css_vendor);
@@ -111,17 +126,22 @@ async fn serve_static_file(
     let cc_val = HeaderValue::try_from(cache_control)
         .unwrap_or_else(|_| HeaderValue::from_static("public, max-age=3600"));
 
-    if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE) {
-        if let Some(ims_time) = ims.to_str().ok().and_then(crate::utils::parse_http_date) {
-            let modified_secs = modified.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-            let ims_secs = ims_time.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-            if modified_secs <= ims_secs {
-                let mut res = Response::new(axum::body::Body::empty());
-                *res.status_mut() = StatusCode::NOT_MODIFIED;
-                res.headers_mut()
-                    .insert(header::CACHE_CONTROL, cc_val);
-                return res;
-            }
+    if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE)
+        && let Some(ims_time) = ims.to_str().ok().and_then(crate::utils::parse_http_date)
+    {
+        let modified_secs = modified
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let ims_secs = ims_time
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if modified_secs <= ims_secs {
+            let mut res = Response::new(axum::body::Body::empty());
+            *res.status_mut() = StatusCode::NOT_MODIFIED;
+            res.headers_mut().insert(header::CACHE_CONTROL, cc_val);
+            return res;
         }
     }
 
@@ -139,8 +159,7 @@ async fn serve_static_file(
         HeaderValue::from_str(&last_modified)
             .unwrap_or(HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT")),
     );
-    res.headers_mut()
-        .insert(header::CACHE_CONTROL, cc_val);
+    res.headers_mut().insert(header::CACHE_CONTROL, cc_val);
     res
 }
 
@@ -177,7 +196,10 @@ async fn serve_baidu_verify(
         let code = baidu_verify_codeva
             .trim_start_matches("baidu_")
             .trim_end_matches(".html");
-        if code.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        if code
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
             let path = format!("./static/{}", baidu_verify_codeva);
             let assets_config = crate::config::load_assets_config();
             let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
@@ -198,5 +220,6 @@ async fn serve_security_txt(req: Request) -> Response {
         "text/plain; charset=utf-8",
         &cc,
         req,
-    ).await
+    )
+    .await
 }

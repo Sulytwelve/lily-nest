@@ -52,20 +52,20 @@ pub async fn load_all_notes() -> Vec<NoteSummary> {
 
     while let Ok(Some(entry)) = dir.next_entry().await {
         let path = entry.path();
-        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
-            if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                if let Some((meta, markdown_body)) = parse_note(&content) {
-                    if let Some(os_name) = path.file_name() {
-                        let filename = os_name.to_string_lossy().to_string();
-                        notes.push(NoteSummary {
-                            meta,
-                            filename,
-                            content: markdown_body,
-                        });
-                    } else {
-                        tracing::warn!("无法解析文件名跳过加载: {:?}", path);
-                    }
-                }
+        if path.is_file()
+            && path.extension().and_then(|s| s.to_str()) == Some("md")
+            && let Ok(content) = tokio::fs::read_to_string(&path).await
+            && let Some((meta, markdown_body)) = parse_note(&content)
+        {
+            if let Some(os_name) = path.file_name() {
+                let filename = os_name.to_string_lossy().to_string();
+                notes.push(NoteSummary {
+                    meta,
+                    filename,
+                    content: markdown_body,
+                });
+            } else {
+                tracing::warn!("无法解析文件名跳过加载: {:?}", path);
             }
         }
     }

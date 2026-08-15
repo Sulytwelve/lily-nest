@@ -95,21 +95,21 @@ async fn handle_note_list(
         return res;
     }
 
-    if let Some(cached) = state.note_list_html_cache.read().await.clone() {
-        if !cfg!(debug_assertions) {
-            let mut res = Response::new(axum::body::Body::from(cached));
-            res.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static("text/html; charset=utf-8"),
-            );
-            res.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=300"),
-            );
-            res.headers_mut()
-                .insert(header::VARY, HeaderValue::from_static("Accept"));
-            return res;
-        }
+    if let Some(cached) = state.note_list_html_cache.read().await.clone()
+        && !cfg!(debug_assertions)
+    {
+        let mut res = Response::new(axum::body::Body::from(cached));
+        res.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
+        res.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=300"),
+        );
+        res.headers_mut()
+            .insert(header::VARY, HeaderValue::from_static("Accept"));
+        return res;
     }
 
     let notes = state.note_index.read().await;
@@ -232,27 +232,27 @@ async fn handle_note_detail(
 
     if !wants_markdown {
         let cache = state.note_html_cache.read().await;
-        if let Some(cached) = cache.get(&slug) {
-            if !cfg!(debug_assertions) {
-                let mut res = Response::new(axum::body::Body::from(cached.body.clone()));
-                res.headers_mut().insert(
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_static("text/html; charset=utf-8"),
-                );
-                res.headers_mut().insert(
-                    header::CACHE_CONTROL,
-                    HeaderValue::from_static("public, max-age=300"),
-                );
-                res.headers_mut()
-                    .insert(header::VARY, HeaderValue::from_static("Accept"));
-                res.headers_mut().insert(
-                    header::LINK,
-                    HeaderValue::from_static(
-                        "<?format=markdown>; rel=\"alternate\"; type=\"text/markdown\"",
-                    ),
-                );
-                return res;
-            }
+        if let Some(cached) = cache.get(&slug)
+            && !cfg!(debug_assertions)
+        {
+            let mut res = Response::new(axum::body::Body::from(cached.body.clone()));
+            res.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/html; charset=utf-8"),
+            );
+            res.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=300"),
+            );
+            res.headers_mut()
+                .insert(header::VARY, HeaderValue::from_static("Accept"));
+            res.headers_mut().insert(
+                header::LINK,
+                HeaderValue::from_static(
+                    "<?format=markdown>; rel=\"alternate\"; type=\"text/markdown\"",
+                ),
+            );
+            return res;
         }
     }
 

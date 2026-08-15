@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{
     Router,
     extract::{Query, State},
-    http::{HeaderValue, header, StatusCode},
+    http::{HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -30,7 +30,8 @@ async fn handler_home_page(
 ) -> Response {
     let wants_markdown = state.markdown_config.enable
         && (query.format.as_deref() == Some("markdown")
-            || req.headers()
+            || req
+                .headers()
                 .get(header::ACCEPT)
                 .and_then(|v| v.to_str().ok())
                 .map(|v| v.contains("text/markdown") || v.contains("text/x-markdown"))
@@ -55,7 +56,10 @@ async fn handler_home_page(
         return (
             [
                 (header::CACHE_CONTROL, "no-cache"),
-                (header::LINK, "</?format=markdown>; rel=\"alternate\"; type=\"text/markdown\""),
+                (
+                    header::LINK,
+                    "</?format=markdown>; rel=\"alternate\"; type=\"text/markdown\"",
+                ),
             ],
             Html(html),
         )
@@ -75,16 +79,15 @@ async fn handler_home_page(
     if state.markdown_config.enable {
         res.headers_mut().insert(
             header::LINK,
-            HeaderValue::from_static("</?format=markdown>; rel=\"alternate\"; type=\"text/markdown\""),
+            HeaderValue::from_static(
+                "</?format=markdown>; rel=\"alternate\"; type=\"text/markdown\"",
+            ),
         );
     }
     res
 }
 
-async fn serve_markdown_or_debug(
-    state: Arc<AppState>,
-    req: axum::extract::Request,
-) -> Response {
+async fn serve_markdown_or_debug(state: Arc<AppState>, req: axum::extract::Request) -> Response {
     if cfg!(debug_assertions) {
         let md = tokio::task::spawn_blocking(crate::render::render_index_markdown)
             .await
@@ -97,10 +100,8 @@ async fn serve_markdown_or_debug(
             header::CONTENT_TYPE,
             HeaderValue::from_static("text/markdown; charset=utf-8"),
         );
-        res.headers_mut().insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("no-cache"),
-        );
+        res.headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
         return res;
     }
 
@@ -113,23 +114,32 @@ async fn serve_markdown_or_debug(
         return res;
     }
 
-    serve_cache_response(cache.markdown_body.clone(), "text/markdown; charset=utf-8", &cache)
+    serve_cache_response(
+        cache.markdown_body.clone(),
+        "text/markdown; charset=utf-8",
+        &cache,
+    )
 }
 
 fn check_304(req: &axum::extract::Request, cache: &crate::state::HtmlCache) -> Option<Response> {
-    if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE) {
-        if let Some(ims_time) = ims.to_str().ok().and_then(crate::utils::parse_http_date) {
-            let ims_secs = ims_time.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-            let started_at_secs = cache.started_at.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-            if ims_secs >= started_at_secs {
-                let mut res = Response::new(axum::body::Body::empty());
-                *res.status_mut() = StatusCode::NOT_MODIFIED;
-                res.headers_mut().insert(
-                    header::CACHE_CONTROL,
-                    cache.cache_control.clone(),
-                );
-                return Some(res);
-            }
+    if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE)
+        && let Some(ims_time) = ims.to_str().ok().and_then(crate::utils::parse_http_date)
+    {
+        let ims_secs = ims_time
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let started_at_secs = cache
+            .started_at
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if ims_secs >= started_at_secs {
+            let mut res = Response::new(axum::body::Body::empty());
+            *res.status_mut() = StatusCode::NOT_MODIFIED;
+            res.headers_mut()
+                .insert(header::CACHE_CONTROL, cache.cache_control.clone());
+            return Some(res);
         }
     }
     None
@@ -142,17 +152,8 @@ fn serve_cache_response(
 ) -> Response {
     let mut res = Response::new(axum::body::Body::from(body));
     let headers = res.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static(content_type),
-    );
-    headers.insert(
-        header::CACHE_CONTROL,
-        cache.cache_control.clone(),
-    );
-    headers.insert(
-        header::LAST_MODIFIED,
-        cache.http_date.clone(),
-    );
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    headers.insert(header::CACHE_CONTROL, cache.cache_control.clone());
+    headers.insert(header::LAST_MODIFIED, cache.http_date.clone());
     res
 }
