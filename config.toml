@@ -29,6 +29,9 @@ other_cache_seconds = 3600            # 其他根目录文件（robots.txt, favi
 #     "https://cloudflareinsights.com",
 # ]
 allow_origins = ["*"]
+# 仅当 TCP 对端是这些 IP（或 loopback，如本机 cloudflared）时才信任
+# cf-connecting-ip / x-forwarded-* 等代理头；留空 = 只信 loopback。
+trusted_proxy_ips = []
 admin_password = "CHANGE_YOUR_PASSWORD"
 admin_security_answers = ["default1", "default2", "default3"]
 admin_security_questions = ["default1", "default2", "default3"]

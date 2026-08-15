@@ -3,9 +3,9 @@ mod compressor;
 mod config;
 mod middlewares;
 mod model;
-mod routes;
 pub mod note_loader;
 pub mod render;
+mod routes;
 pub mod state;
 pub mod utils;
 
@@ -44,7 +44,9 @@ async fn main() {
 
     if cfg!(any(debug_assertions, feature = "force-http")) {
         if !cfg!(debug_assertions) && cfg!(feature = "force-http") {
-            warn!("[security] 警告: 当前正在 Release 模式下强制使用未加密的 HTTP 服务! 管理后台密码在传输时可能会被明文拦截，存在极大的安全风险!");
+            warn!(
+                "[security] 警告: 当前正在 Release 模式下强制使用未加密的 HTTP 服务! 管理后台密码在传输时可能会被明文拦截，存在极大的安全风险!"
+            );
         }
 
         // debug：直接 HTTP port
@@ -52,9 +54,12 @@ async fn main() {
         let addr: SocketAddr = addr_str.parse().expect("解析地址失败");
         info!(">> 梨窝 已启动 (dev): http://{}", addr);
         let mut server = axum_server::bind(addr);
-        server.http_builder().http2().max_header_list_size(HTTP2_MAX_HEADER_LIST_SIZE);
         server
-            .serve(app.into_make_service())
+            .http_builder()
+            .http2()
+            .max_header_list_size(HTTP2_MAX_HEADER_LIST_SIZE);
+        server
+            .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await
             .expect("Server error");
     } else {
@@ -80,9 +85,12 @@ async fn main() {
         let addr: SocketAddr = addr_str.parse().expect("解析地址失败");
         info!(">> 梨窝 已启动: https://{}", addr);
         let mut server = axum_server::bind_rustls(addr, config);
-        server.http_builder().http2().max_header_list_size(HTTP2_MAX_HEADER_LIST_SIZE);
         server
-            .serve(app.into_make_service())
+            .http_builder()
+            .http2()
+            .max_header_list_size(HTTP2_MAX_HEADER_LIST_SIZE);
+        server
+            .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await
             .expect("Server error");
     }

@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let securityAnswerInput = null;
     let securityQuestionLabel = null;
 
-    let securityQuestions = [];
+    let questionCount = 0;
 
     // Migrate old token keys to unified keys
     (function migrateTokens() {
@@ -38,7 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let rawCfTrace = '';
     let authExtSecqEnabled = false;
     let authExtCftraceEnabled = false;
-    let cftraceUrl = 'https://cloudflare.com/cdn-cgi/trace';
 
     // 被限流时的时间戳，此时间之前不再发请求
     let rateLimitedUntil = 0;
@@ -94,21 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         authExtSecqEnabled = config.auth_ext_secq;
         authExtCftraceEnabled = config.auth_ext_cftrace;
-        if (config.security_questions) {
-            securityQuestions = config.security_questions;
-        }
-        if (config.cftrace_url && config.cftrace_url.trim() !== '') {
-            let url = config.cftrace_url.trim();
-            if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/')) {
-                cftraceUrl = url;
-            } else {
-                if (url === window.location.hostname || url === window.location.host) {
-                    cftraceUrl = '/cdn-cgi/trace';
-                } else {
-                    cftraceUrl = `https://${url}/cdn-cgi/trace`;
-                }
-            }
-        }
+        questionCount = config.question_count || 0;
         if (authExtSecqEnabled) {
             securityQuestionContainer.innerHTML = `
                 <p id="security-question-label" class="md-typescale-body-medium" style="margin-bottom: 8px; color: var(--md-sys-color-primary);"></p>
@@ -122,41 +107,40 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     })();
 
-    function pickRandomQuestion() {
-        if (!authExtSecqEnabled || !securityQuestions || securityQuestions.length === 0) return 0;
-        const index = Math.floor(Math.random() * securityQuestions.length);
-        if (securityQuestionLabel) {
-            securityQuestionLabel.innerText = `Security Question: ${securityQuestions[index]}`;
+    let tempQuestionIndex = 0;
+
+    async function refreshQuestion() {
+        try {
+            const res = await fetchWithTimeout('/api/v1/admin/login/question', { cache: 'no-store' });
+            if (!res.ok) {
+                updateStatus('Security question unavailable', true);
+                throw new Error('Security question unavailable');
+            }
+            const data = await res.json();
+            tempQuestionIndex = data.question_index;
+            if (securityQuestionLabel) {
+                securityQuestionLabel.innerText = `Security Question: ${data.question}`;
+            }
+        } catch (e) {
+            updateStatus('Security question unavailable', true);
+            throw e;
         }
-        return index;
     }
 
-    let tempQuestionIndex = 0;
+    async function showAuthDialog() {
+        if (authExtSecqEnabled) {
+            try {
+                await refreshQuestion();
+            } catch (e) {
+                // 取题失败仍打开对话框；提交时服务端会拒绝并提示
+            }
+        }
+        authDialog.show();
+    }
 
     async function fetchTrace() {
         try {
-            let url = cftraceUrl;
-            if (!cftraceUrl.startsWith('/')) {
-                let traceHost = cftraceUrl.trim().toLowerCase();
-                if (traceHost.startsWith('http://')) traceHost = traceHost.substring(7);
-                else if (traceHost.startsWith('https://')) traceHost = traceHost.substring(8);
-                traceHost = traceHost.split('/')[0];
-
-                let traceHostname = traceHost;
-                if (traceHost.startsWith('[')) {
-                    const idx = traceHost.indexOf(']');
-                    if (idx !== -1) traceHostname = traceHost.substring(0, idx + 1);
-                } else {
-                    traceHostname = traceHost.split(':')[0];
-                }
-
-                const currentHost = window.location.hostname.toLowerCase();
-                const normalize = dom => dom.startsWith('www.') ? dom.substring(4) : dom;
-                const useRelative = normalize(currentHost) === normalize(traceHostname);
-                url = useRelative ? '/cdn-cgi/trace' : (cftraceUrl.startsWith('http') ? cftraceUrl : `https://${cftraceUrl}`);
-            }
-
-            const res = await fetchWithTimeout(url);
+            const res = await fetchWithTimeout('/cdn-cgi/trace');
             if (res.ok) {
                 rawCfTrace = await res.text();
             }
@@ -224,8 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isTokenValid()) {
             // Token 过期或不存在，弹出登录框
             clearToken();
-            tempQuestionIndex = pickRandomQuestion();
-            authDialog.show();
+            await showAuthDialog();
             throw new Error('Unauthorized');
         }
 
@@ -252,8 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (response.status === 401) {
             // Token 被服务端拒绝（如服务器重启后 secret 变更）
             clearToken();
-            tempQuestionIndex = pickRandomQuestion();
-            authDialog.show();
+            await showAuthDialog();
             throw new Error('Unauthorized');
         }
 
@@ -286,9 +268,8 @@ document.addEventListener('DOMContentLoaded', () => {
             await loadConfigs();
         } catch (e) {
             if (e.message === 'Unauthorized') {
-                // 已在 doLogin 里 updateStatus，重新打开对话框
-                tempQuestionIndex = pickRandomQuestion();
-                authDialog.show();
+                // 已在 doLogin 里 updateStatus，重新打开对话框并重新取题
+                await showAuthDialog();
             }
         } finally {
             loginConfirmBtn.disabled = false;
@@ -382,8 +363,11 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         clearToken();
         setTimeout(() => {
-            tempQuestionIndex = pickRandomQuestion();
-            authDialog.show();
+            if (authExtSecqEnabled) {
+                refreshQuestion().catch(() => {}).finally(() => authDialog.show());
+            } else {
+                authDialog.show();
+            }
         }, 100);
     }
 
@@ -604,8 +588,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 title: editTitle.value,
                 tags: currentTags,
                 excerpt: editExcerpt.value.trim() ? editExcerpt.value.trim() : null,
-                content: editContent.value,
-                original_slug: currentEditingSlug
+                content: editContent.value
             };
             
             const method = currentEditingSlug ? 'PUT' : 'POST';

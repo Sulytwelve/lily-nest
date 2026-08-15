@@ -7,6 +7,7 @@ edition = "2024"
 force-http = []
 
 [dependencies]
+ammonia = "3"
 axum = "0.8.9"
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }
 brotli = "8.0.4"

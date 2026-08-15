@@ -79,7 +79,10 @@ fn process_compression(file_path: &PathBuf, config: &AssetsConfig) {
         }
     };
 
-    let Some(base_name) = file_path.file_stem().map(|s| s.to_string_lossy().to_string()) else {
+    let Some(base_name) = file_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+    else {
         warn!("文件无文件名: {}", file_path.display());
         return;
     };

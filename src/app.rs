@@ -88,7 +88,7 @@ pub async fn build_app() -> Router {
         assets_config: Arc::new(assets_config),
         markdown_config: Arc::new(markdown_config),
         cloudflare_config: Arc::new(crate::config::load_cloudflare_config()),
-        auth_rate_limiter: Mutex::new(HashMap::new()),
+        auth_rate_limiter: Mutex::new(crate::state::RateLimitTable::default()),
         jwt_secret,
         note_index: RwLock::new(crate::note_loader::load_all_notes().await),
         note_html_cache: RwLock::new(HashMap::new()),
@@ -97,12 +97,17 @@ pub async fn build_app() -> Router {
 
     let cors = build_cors_layer(&state.security_config);
 
-    let api_routes = routes::api::router(state.clone()).layer(cors);
+    let api_public = routes::api::public_router(state.clone()).layer(cors);
+    let api_sensitive = routes::api::sensitive_router(state.clone());
+    let api_admin = routes::api::admin_router(state.clone());
+    let api_routes = api_public.merge(api_sensitive).merge(api_admin);
 
     let app_routes = routes::home::router(state.clone())
         .nest("/api/v1", api_routes)
         .merge(routes::admin::router(state.clone()))
         .merge(routes::note::router(state.clone()))
+        // B29：`/admin/notes*` 与 `/api/v1/notes*` 是 Agent 机器调用专线，
+        // 走 note_auth_middleware 的 Bearer JWT 校验，刻意不挂 CORS。
         .merge(routes::note_admin::router(state.clone()))
         .layer(middleware::from_fn_with_state(
             state.clone(),

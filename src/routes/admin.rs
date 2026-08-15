@@ -35,14 +35,19 @@ async fn admin_page_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
         state.security_config.clone()
     };
 
-    let auth_config = serde_json::json!({
-        "auth_ext_secq": security_config.auth_ext_secq.unwrap_or(false),
-        "auth_ext_cftrace": security_config.auth_ext_cftrace.unwrap_or(false),
-        "cftrace_url": security_config.cftrace_url,
-        "security_questions": security_config.admin_security_questions,
-    });
+    let auth_config = crate::model::AdminAuthPageConfig {
+        auth_ext_secq: security_config.auth_ext_secq.unwrap_or(false),
+        auth_ext_cftrace: security_config.auth_ext_cftrace.unwrap_or(false),
+        question_count: security_config
+            .admin_security_questions
+            .as_ref()
+            .map(|questions| questions.len())
+            .unwrap_or(0),
+    };
 
-    let auth_config_str = auth_config.to_string().replace("</", "<\\/");
+    let auth_config_str = serde_json::to_string(&auth_config)
+        .unwrap_or_else(|_| "{}".to_string())
+        .replace("</", "<\\/");
 
     let body = Html(html.replace("{{auth_config_json}}", &auth_config_str));
     (

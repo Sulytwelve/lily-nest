@@ -13,27 +13,35 @@ use tracing::{error, info};
 use crate::{
     config::{get_editable_configs, load_site_profile},
     middlewares::handle_admin_login,
-    model::{ConfigFile, HealthResponse, HomeProfile, SaveConfigRequest},
+    model::{AdminLoginQuestion, ConfigFile, HealthResponse, HomeProfile, SaveConfigRequest},
     state::AppState,
 };
 
-pub fn router(state: Arc<AppState>) -> Router {
-    let public_routes = Router::new()
+pub fn public_router(state: Arc<AppState>) -> Router {
+    Router::new()
         .route("/home/profile", get(get_home_profile))
         .route("/health", get(health_handler))
-        // 登录端点：不在 admin_auth_middleware 范围内，但有 rate limit
-        .route("/admin/login", post(handle_admin_login));
+        .with_state(state)
+}
 
-    let admin_routes = Router::new()
+/// 登录与按需取题端点：公开可达，但有意不挂 CORS 层（app.rs 会单独组装）。
+pub fn sensitive_router(state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/admin/login", post(handle_admin_login))
+        .route("/admin/login/question", get(get_admin_login_question))
+        .with_state(state)
+}
+
+pub fn admin_router(state: Arc<AppState>) -> Router {
+    Router::new()
         .route("/admin/configs", get(list_configs))
         .route("/admin/configs/{name}", get(get_config).post(save_config))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::middlewares::admin_auth_middleware,
         ))
-        .layer(DefaultBodyLimit::max(5 * 1024 * 1024));
-
-    public_routes.merge(admin_routes).with_state(state)
+        .layer(DefaultBodyLimit::max(5 * 1024 * 1024))
+        .with_state(state)
 }
 
 async fn get_home_profile() -> Json<HomeProfile> {
@@ -41,10 +49,56 @@ async fn get_home_profile() -> Json<HomeProfile> {
 }
 
 async fn health_handler() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok",
-        version: env!("CARGO_PKG_VERSION"),
+    Json(HealthResponse { status: "ok" })
+}
+
+/// GET /api/v1/admin/login/question — 登录时按需随机下发一道密保题。
+/// 与 B22 配合：`/admin` 页面只携带题目数量，不再公开完整题目集。
+async fn get_admin_login_question(
+    State(state): State<Arc<AppState>>,
+) -> Result<Response, StatusCode> {
+    let security_config = if cfg!(debug_assertions) {
+        std::sync::Arc::new(
+            tokio::task::spawn_blocking(crate::config::load_security_config)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
+                    crate::model::SecurityConfig::default()
+                }),
+        )
+    } else {
+        state.security_config.clone()
+    };
+
+    if security_config.auth_ext_secq != Some(true) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let questions = match security_config.admin_security_questions.as_ref() {
+        Some(questions) if !questions.is_empty() => questions,
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
+
+    const PLACEHOLDER_QUESTIONS: &[&str] = &["default1", "default2", "default3"];
+    if questions
+        .iter()
+        .any(|question| PLACEHOLDER_QUESTIONS.contains(&question.as_str()))
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let question_index = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as usize
+        % questions.len();
+    let mut res = Json(AdminLoginQuestion {
+        question_index,
+        question: questions[question_index].clone(),
     })
+    .into_response();
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(res)
 }
 
 async fn atomic_write_text(path: &str, content: &str) -> Result<(), std::io::Error> {

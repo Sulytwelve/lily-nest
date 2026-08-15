@@ -1,10 +1,11 @@
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::{
     Json,
-    extract::{Request, State},
-    http::{HeaderName, HeaderValue, Method, StatusCode, header},
+    extract::{Request, State, connect_info::ConnectInfo},
+    http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header},
     middleware,
     middleware::Next,
     response::{IntoResponse, Response},
@@ -170,29 +171,108 @@ pub async fn security_headers(
     res
 }
 
+/// 依据 TCP 对端 IP 决策是否信任代理头（B3）。
+///
+/// 只有对端为 loopback（如本机 cloudflared）或配置在
+/// `security.trusted_proxy_ips` 中时，才采信 `cf-connecting-ip` /
+/// `x-real-ip` / `x-forwarded-for`；否则直接使用对端 IP。
+fn resolve_client_ip(
+    peer: SocketAddr,
+    headers: &HeaderMap,
+    trusted_ips: Option<&Vec<String>>,
+) -> String {
+    let trust_proxy = peer.ip().is_loopback()
+        || trusted_ips.is_some_and(|ips| ips.iter().any(|ip| ip.trim() == peer.ip().to_string()));
+
+    if trust_proxy {
+        for name in ["cf-connecting-ip", "x-real-ip"] {
+            if let Some(value) = headers.get(name).and_then(|v| v.to_str().ok()) {
+                let value = value.trim();
+                if !value.is_empty() && value.parse::<IpAddr>().is_ok() {
+                    return value.to_string();
+                }
+            }
+        }
+        if let Some(value) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok())
+            && let Some(first) = value.split(',').next()
+        {
+            let first = first.trim();
+            if !first.is_empty() && first.parse::<IpAddr>().is_ok() {
+                return first.to_string();
+            }
+        }
+    }
+
+    peer.ip().to_string()
+}
+
 /// POST /api/v1/admin/login — 验证凭据，签发 JWT
-pub async fn handle_admin_login(State(state): State<Arc<AppState>>, req: Request) -> Response {
+pub async fn handle_admin_login(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    req: Request,
+) -> Response {
     let headers = req.headers().clone();
     let req_uri_authority = req.uri().authority().map(|a| a.as_str().to_string());
 
-    let client_ip = headers
-        .get("cf-connecting-ip")
-        .or_else(|| headers.get("x-real-ip"))
-        .or_else(|| headers.get("x-forwarded-for"))
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("Unknown IP");
+    let security_config = if cfg!(debug_assertions) {
+        std::sync::Arc::new(
+            tokio::task::spawn_blocking(crate::config::load_security_config)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
+                    crate::model::SecurityConfig::default()
+                }),
+        )
+    } else {
+        state.security_config.clone()
+    };
 
-    // Rate limiting — 只有登录请求才消耗限额，带 token 的正常请求不计入
+    let client_ip = resolve_client_ip(peer, &headers, security_config.trusted_proxy_ips.as_ref());
+
+    // Rate limiting — 有界限流表（B26），只有登录请求才消耗限额
+    const MAX_RATE_LIMIT_KEYS: usize = 100_000;
     {
         let now = Instant::now();
-        let mut limiter = state.auth_rate_limiter.lock().await;
-        limiter.retain(|_, w| {
-            w.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
-            !w.is_empty()
-        });
-        let window = limiter.entry(client_ip.to_string()).or_default();
-        if window.len() >= 5 {
-            drop(limiter);
+        let mut table = state.auth_rate_limiter.lock().await;
+
+        if table.last_cleanup.elapsed() >= Duration::from_secs(60) {
+            table
+                .buckets
+                .retain(|_, b| now.duration_since(b.window_start) < Duration::from_secs(60));
+            table.last_cleanup = now;
+        }
+
+        if table.buckets.len() >= MAX_RATE_LIMIT_KEYS && !table.buckets.contains_key(&client_ip) {
+            drop(table);
+            warn!(
+                "Admin login rate limiter table is full; rejecting IP: {}",
+                client_ip
+            );
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, "60")],
+                "Too many requests",
+            )
+                .into_response();
+        }
+
+        let bucket =
+            table
+                .buckets
+                .entry(client_ip.clone())
+                .or_insert(crate::state::RateLimitBucket {
+                    window_start: now,
+                    count: 0,
+                });
+
+        if now.duration_since(bucket.window_start) >= Duration::from_secs(60) {
+            bucket.window_start = now;
+            bucket.count = 0;
+        }
+
+        if bucket.count >= 5 {
+            drop(table);
             warn!("Admin login rate limit exceeded for IP: {}", client_ip);
             return (
                 StatusCode::TOO_MANY_REQUESTS,
@@ -201,7 +281,8 @@ pub async fn handle_admin_login(State(state): State<Arc<AppState>>, req: Request
             )
                 .into_response();
         }
-        window.push(now);
+
+        bucket.count += 1;
     }
 
     // 解析请求体（带 15s 超时，避免慢速 body 长期占连接）
@@ -218,19 +299,6 @@ pub async fn handle_admin_login(State(state): State<Arc<AppState>>, req: Request
     let payload: AdminLoginRequest = match serde_json::from_slice(&body_bytes) {
         Ok(p) => p,
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid JSON").into_response(),
-    };
-
-    let security_config = if cfg!(debug_assertions) {
-        std::sync::Arc::new(
-            tokio::task::spawn_blocking(crate::config::load_security_config)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
-                    crate::model::SecurityConfig::default()
-                }),
-        )
-    } else {
-        state.security_config.clone()
     };
 
     let actual_password = security_config.admin_password.clone();

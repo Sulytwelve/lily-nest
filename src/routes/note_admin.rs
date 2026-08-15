@@ -60,7 +60,6 @@ async fn get_note(
                 tags: meta.tags,
                 excerpt: meta.excerpt,
                 content: markdown_body.trim().to_string(),
-                original_slug: Some(meta.slug),
             }));
         }
     }

@@ -205,7 +205,8 @@ async fn serve_baidu_verify(
             let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
             serve_static_file(&path, "text/html; charset=utf-8", &cc, req).await
         } else {
-            StatusCode::BAD_REQUEST.into_response()
+            // 兜底路由：对未知/畸形路径一律表现为 404，避免向扫描器暴露 400 语义（B30）
+            StatusCode::NOT_FOUND.into_response()
         }
     } else {
         StatusCode::NOT_FOUND.into_response()

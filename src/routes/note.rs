@@ -294,6 +294,10 @@ async fn handle_note_detail(
                 let mut html_output = String::new();
                 html::push_html(&mut html_output, parser);
 
+                // B1: 消毒 Markdown 渲染产物，阻止原始 HTML / javascript: 等进入 DOM。
+                // 后续的缓存写入与模板插入都使用这个消毒后的 html_output。
+                let html_output = ammonia::Builder::default().clean(&html_output).to_string();
+
                 let template = tokio::fs::read_to_string("templates/note_detail.html").await.unwrap_or_else(|_| {
                     "<!DOCTYPE html><html><body><article><h1>{{title}}</h1><div class='content'>{{content}}</div></article></body></html>".to_string()
                 });

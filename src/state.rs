@@ -38,13 +38,37 @@ impl HtmlCache {
     }
 }
 
+/// 单个登录限流桶：固定 60 秒窗口 + 请求计数（B3/B26）。
+pub struct RateLimitBucket {
+    pub window_start: Instant,
+    pub count: u32,
+}
+
+/// 有界登录限流表：按 client key 分桶，并定期清理过期桶（B26）。
+///
+/// 注意：`Instant` 没有 `Default` 实现，因此这里不能 `#[derive(Default)]`，
+/// 采用等价的手写实现。
+pub struct RateLimitTable {
+    pub buckets: HashMap<String, RateLimitBucket>,
+    pub last_cleanup: Instant,
+}
+
+impl Default for RateLimitTable {
+    fn default() -> Self {
+        Self {
+            buckets: HashMap::new(),
+            last_cleanup: Instant::now(),
+        }
+    }
+}
+
 pub struct AppState {
     pub html_cache: RwLock<HtmlCache>,
     pub security_config: Arc<SecurityConfig>,
     pub assets_config: Arc<AssetsConfig>,
     pub markdown_config: Arc<MarkdownConfig>,
     pub cloudflare_config: Arc<crate::model::CloudflareConfig>,
-    pub auth_rate_limiter: Mutex<HashMap<String, Vec<Instant>>>,
+    pub auth_rate_limiter: Mutex<RateLimitTable>,
     /// 优先从环境变量 LILY_JWT_SECRET 或本地 .jwt_secret 文件加载，保证重启后会话持久
     pub jwt_secret: Vec<u8>,
     /// Agent 公钥（优先 .agent.pub，支持 Ed25519 非对称 JWT 验签）

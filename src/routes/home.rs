@@ -43,6 +43,8 @@ async fn handler_home_page(
             header::CACHE_CONTROL,
             HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),
         );
+        res.headers_mut()
+            .insert(header::VARY, HeaderValue::from_static("Accept"));
         return res;
     }
 
@@ -53,7 +55,7 @@ async fn handler_home_page(
                 tracing::error!("render_index panicked in spawn_blocking: {e}");
                 String::new()
             });
-        return (
+        let mut res = (
             [
                 (header::CACHE_CONTROL, "no-cache"),
                 (
@@ -64,6 +66,9 @@ async fn handler_home_page(
             Html(html),
         )
             .into_response();
+        res.headers_mut()
+            .insert(header::VARY, HeaderValue::from_static("Accept"));
+        return res;
     }
 
     let cache = {
@@ -139,6 +144,8 @@ fn check_304(req: &axum::extract::Request, cache: &crate::state::HtmlCache) -> O
             *res.status_mut() = StatusCode::NOT_MODIFIED;
             res.headers_mut()
                 .insert(header::CACHE_CONTROL, cache.cache_control.clone());
+            res.headers_mut()
+                .insert(header::VARY, HeaderValue::from_static("Accept"));
             return Some(res);
         }
     }
@@ -155,5 +162,6 @@ fn serve_cache_response(
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
     headers.insert(header::CACHE_CONTROL, cache.cache_control.clone());
     headers.insert(header::LAST_MODIFIED, cache.http_date.clone());
+    headers.insert(header::VARY, HeaderValue::from_static("Accept"));
     res
 }
