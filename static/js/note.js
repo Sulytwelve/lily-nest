@@ -25,6 +25,22 @@
       }[tag] || tag));
     }
 
+    // 统一的 KaTeX 渲染入口（供初始渲染与搜索结果复用）
+    function renderMath(container) {
+      if (!window.renderMathInElement) return;
+      try {
+        renderMathInElement(container, {
+          delimiters: [
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$', display: false},
+            {left: '\\(', right: '\\)', display: false},
+            {left: '\\[', right: '\\]', display: true}
+          ],
+          throwOnError: false
+        });
+      } catch(e) {}
+    }
+
     function renderNotes(notesToRender, containerElement) {
       containerElement.innerHTML = '';
       
@@ -36,7 +52,7 @@
       notesToRender.forEach(note => {
         const card = document.createElement('a');
         card.className = 'note-card';
-        card.href = `/note/${note.meta.slug}`;
+        card.href = `/note/${encodeURIComponent(note.meta.slug)}`;
         card.style.textDecoration = 'none';
         card.style.color = 'inherit';
         
@@ -65,19 +81,7 @@
         containerElement.appendChild(card);
       });
 
-      if (window.renderMathInElement) {
-        try {
-          renderMathInElement(containerElement, {
-            delimiters: [
-              {left: '$$', right: '$$', display: true},
-              {left: '$', right: '$', display: false},
-              {left: '\\(', right: '\\)', display: false},
-              {left: '\\[', right: '\\]', display: true}
-            ],
-            throwOnError: false
-          });
-        } catch(e) {}
-      }
+      renderMath(containerElement);
     }
 
     // --- 搜索遮罩逻辑 ---
@@ -128,3 +132,9 @@
         }
       }
     });
+
+    // 列表页初始渲染：note.js 是 defer 脚本，按文档顺序在 katex 的 defer 脚本之后执行，
+    // 此时 renderMathInElement 已可用，直接对整页渲染一次，让卡片公式初始即显示。
+    if (window.renderMathInElement) {
+      renderMath(document.body);
+    }

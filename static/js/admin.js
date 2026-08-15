@@ -43,6 +43,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // 被限流时的时间戳，此时间之前不再发请求
     let rateLimitedUntil = 0;
 
+    // 统一 fetch 封装：默认 15s 超时；调用方已提供 signal 时尊重原 signal
+    function fetchWithTimeout(url, options = {}, ms = 15000) {
+        const opts = { ...options };
+        if (!opts.signal) {
+            opts.signal = AbortSignal.timeout(ms);
+        }
+        return fetch(url, opts);
+    }
+
     function updateStatus(msg, isError = false) {
         statusText.innerText = msg;
         statusText.style.color = isError ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-on-surface-variant)';
@@ -147,7 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 url = useRelative ? '/cdn-cgi/trace' : (cftraceUrl.startsWith('http') ? cftraceUrl : `https://${cftraceUrl}`);
             }
 
-            const res = await fetch(url);
+            const res = await fetchWithTimeout(url);
             if (res.ok) {
                 rawCfTrace = await res.text();
             }
@@ -174,7 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let response;
         try {
-            response = await fetch('/api/v1/admin/login', {
+            response = await fetchWithTimeout('/api/v1/admin/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -227,9 +236,14 @@ document.addEventListener('DOMContentLoaded', () => {
             ...options.headers,
         };
 
+        const fetchOptions = { ...options, headers };
+        if (isGet && !('cache' in fetchOptions)) {
+            fetchOptions.cache = 'no-store';
+        }
+
         let response;
         try {
-            response = await fetch(url, { ...options, headers });
+            response = await fetchWithTimeout(url, fetchOptions);
         } catch (e) {
             updateStatus('Server not responding', true);
             throw e;
@@ -296,7 +310,10 @@ document.addEventListener('DOMContentLoaded', () => {
             configs.forEach(cfg => {
                 const item = document.createElement('md-list-item');
                 item.type = 'button';
-                item.innerHTML = `<div slot="headline">${cfg.name}</div>`;
+                const div = document.createElement('div');
+                div.setAttribute('slot', 'headline');
+                div.textContent = cfg.name;
+                item.appendChild(div);
                 item.addEventListener('click', () => loadFile(cfg.name));
                 configList.appendChild(item);
             });
@@ -314,7 +331,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentFilenameDisplay.innerText = name;
         updateStatus(`Loading ${name}...`);
         try {
-            const res = await apiFetch(`/api/v1/admin/configs/${name}`);
+            const res = await apiFetch(`/api/v1/admin/configs/${encodeURIComponent(name)}`);
             if (res.ok) {
                 editor.value = await res.text();
                 saveBtn.disabled = false;
@@ -335,7 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveBtn.disabled = true;
         updateStatus('Saving...');
         try {
-            const res = await apiFetch(`/api/v1/admin/configs/${currentFile}`, {
+            const res = await apiFetch(`/api/v1/admin/configs/${encodeURIComponent(currentFile)}`, {
                 method: 'POST',
                 body: JSON.stringify({ content: editor.value }),
             });
@@ -489,7 +506,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function deleteNote(slug) {
         if (!confirm(`确定要删除 ${slug} 吗？`)) return;
         try {
-            await apiFetch(`/admin/notes/${slug}`, { method: 'DELETE' });
+            await apiFetch(`/admin/notes/${encodeURIComponent(slug)}`, { method: 'DELETE' });
             loadNotes();
         } catch (e) {
             alert('删除出错');
@@ -508,7 +525,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (slug) {
             editorTitleText.textContent = '编辑梨记';
             try {
-                const res = await apiFetch(`/admin/notes/${slug}`);
+                const res = await apiFetch(`/admin/notes/${encodeURIComponent(slug)}`);
                 const data = await res.json();
                 editTitle.value = data.title || '';
                 currentTags = data.tags || [];
@@ -592,7 +609,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             
             const method = currentEditingSlug ? 'PUT' : 'POST';
-            const url = currentEditingSlug ? `/admin/notes/${currentEditingSlug}` : '/admin/notes';
+            const url = currentEditingSlug ? `/admin/notes/${encodeURIComponent(currentEditingSlug)}` : '/admin/notes';
             
             try {
                 await apiFetch(url, {

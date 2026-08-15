@@ -1,14 +1,17 @@
-use std::sync::Arc;
 use axum::{
+    Json, Router,
     extract::{DefaultBodyLimit, Path, State},
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
+    middleware,
+    response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router, middleware,
 };
-use tracing::{info, error};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{error, info};
 
 use crate::{
-    config::{load_site_profile, get_editable_configs},
+    config::{get_editable_configs, load_site_profile},
     middlewares::handle_admin_login,
     model::{ConfigFile, HealthResponse, HomeProfile, SaveConfigRequest},
     state::AppState,
@@ -44,14 +47,39 @@ async fn health_handler() -> Json<HealthResponse> {
     })
 }
 
-async fn list_configs() -> Json<Vec<ConfigFile>> {
-    let configs = get_editable_configs().await.into_iter()
-        .map(|name| ConfigFile { name })
-        .collect();
-    Json(configs)
+async fn atomic_write_text(path: &str, content: &str) -> Result<(), std::io::Error> {
+    let tmp = format!(
+        "{}.{}.{}.tmp",
+        path,
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    tokio::fs::write(&tmp, content).await?;
+    match tokio::fs::rename(&tmp, path).await {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            Err(e)
+        }
+    }
 }
 
-async fn get_config(Path(name): Path<String>) -> Result<String, StatusCode> {
+async fn list_configs() -> Response {
+    let configs = get_editable_configs()
+        .await
+        .into_iter()
+        .map(|name| ConfigFile { name })
+        .collect::<Vec<_>>();
+    let mut res = Json(configs).into_response();
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    res
+}
+
+async fn get_config(Path(name): Path<String>) -> Result<Response, StatusCode> {
     let editable = get_editable_configs().await;
     if !editable.contains(&name) {
         return Err(StatusCode::FORBIDDEN);
@@ -59,29 +87,36 @@ async fn get_config(Path(name): Path<String>) -> Result<String, StatusCode> {
     let file_path = if name == "sitemap.xml" {
         if tokio::fs::metadata("static/sitemap.xml").await.is_err() {
             let default_sitemap = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n    <url>\n        <loc>https://example.com/</loc>\n        <changefreq>daily</changefreq>\n        <priority>1.0</priority>\n    </url>\n</urlset>";
-            let _ = tokio::fs::write("static/sitemap.xml", default_sitemap).await;
+            let _ = atomic_write_text("static/sitemap.xml", default_sitemap).await;
         }
         "static/sitemap.xml"
     } else {
         name.as_str()
     };
-    tokio::fs::read_to_string(file_path)
+    let content = tokio::fs::read_to_string(file_path)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let mut res = content.into_response();
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(res)
 }
 
 async fn save_config(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
     Json(payload): Json<SaveConfigRequest>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<Response, StatusCode> {
     let editable = get_editable_configs().await;
     if !editable.contains(&name) {
         return Err(StatusCode::FORBIDDEN);
     }
 
     let file_path = if name == "sitemap.xml" {
-        if !payload.content.trim().starts_with("<?xml") && !payload.content.trim().starts_with("<urlset") && !payload.content.trim().starts_with("<sitemapindex") {
+        if !payload.content.trim().starts_with("<?xml")
+            && !payload.content.trim().starts_with("<urlset")
+            && !payload.content.trim().starts_with("<sitemapindex")
+        {
             error!("Invalid syntax for sitemap.xml: must be valid XML");
             return Err(StatusCode::BAD_REQUEST);
         }
@@ -96,18 +131,28 @@ async fn save_config(
             "site.toml" => {
                 #[derive(serde::Deserialize)]
                 struct SiteWrapper {
+                    #[serde(default)]
                     profile: crate::model::HomeProfile,
+                    #[serde(default)]
                     site: crate::model::SiteConfig,
+                    #[serde(default)]
+                    note: crate::model::NoteConfig,
                 }
                 toml::from_str::<SiteWrapper>(&payload.content)
                     .map(|w| {
                         let _ = w.profile;
                         let _ = w.site;
+                        let _ = w.note;
                     })
                     .is_ok()
             }
-            "projects.toml" => toml::from_str::<crate::model::ProjectList>(&payload.content).is_ok(),
+            "projects.toml" => {
+                toml::from_str::<crate::model::ProjectList>(&payload.content).is_ok()
+            }
             "about.toml" => toml::from_str::<crate::model::AboutList>(&payload.content).is_ok(),
+            "changelog.toml" => {
+                toml::from_str::<crate::model::ChangelogList>(&payload.content).is_ok()
+            }
             _ => true,
         };
 
@@ -118,8 +163,13 @@ async fn save_config(
         name.as_str()
     };
 
-    tokio::fs::write(file_path, &payload.content).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    info!("Updated config file on disk asynchronously: {} (path: {})", name, file_path);
+    atomic_write_text(file_path, &payload.content)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    info!(
+        "Updated config file on disk asynchronously: {} (path: {})",
+        name, file_path
+    );
 
     let rendered = tokio::task::spawn_blocking(crate::render::render_index)
         .await
@@ -150,8 +200,16 @@ async fn save_config(
         );
     }
 
+    *state.note_list_html_cache.write().await = None;
+    state.note_html_cache.write().await.clear();
 
-    info!("In-memory HTML cache and started_at refreshed successfully after saving {}", name);
+    info!(
+        "In-memory HTML cache and started_at refreshed successfully after saving {}",
+        name
+    );
 
-    Ok(StatusCode::OK)
+    let mut res = StatusCode::OK.into_response();
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(res)
 }

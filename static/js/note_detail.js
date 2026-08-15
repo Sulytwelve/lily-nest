@@ -46,7 +46,11 @@ if (copyMdBtn) {
   copyMdBtn.addEventListener('click', async () => {
     try {
       const url = window.location.pathname + '?format=markdown';
-      const res = await fetch(url, { headers: { 'Accept': 'text/markdown' } });
+      const fetchOptions = { headers: { 'Accept': 'text/markdown' } };
+      if (!fetchOptions.signal) {
+        fetchOptions.signal = AbortSignal.timeout(15000);
+      }
+      const res = await fetch(url, fetchOptions);
       if (!res.ok) throw new Error('Network response was not ok');
       const mdContent = await res.text();
 
@@ -69,3 +73,35 @@ if (copyMdBtn) {
     }
   });
 }
+
+// KaTeX / Highlight.js 初始化（CSP 合规：不再依赖内联 onload / 内联 script）
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.hljs) {
+    try {
+      hljs.highlightAll();
+    } catch (e) {
+      console.warn('Highlight.js init failed:', e);
+    }
+  }
+
+  if (window.renderMathInElement) {
+    try {
+      renderMathInElement(document.body, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false},
+          {left: '\\(', right: '\\)', display: false},
+          {left: '\\[', right: '\\]', display: true}
+        ],
+        throwOnError: false
+      });
+    } catch (e) {}
+  } else if (window.katex) {
+    document.querySelectorAll('.math-inline').forEach(el => {
+      try { katex.render(el.textContent, el, { displayMode: false, throwOnError: false }); } catch(e){}
+    });
+    document.querySelectorAll('.math-display').forEach(el => {
+      try { katex.render(el.textContent, el, { displayMode: true, throwOnError: false }); } catch(e){}
+    });
+  }
+});

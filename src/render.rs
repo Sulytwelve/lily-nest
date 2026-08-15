@@ -1,4 +1,6 @@
-use crate::config::{load_about_items, load_changelog, load_projects, load_site_data, load_cloudflare_config};
+use crate::config::{
+    load_about_items, load_changelog, load_cloudflare_config, load_projects, load_site_data,
+};
 use crate::utils::{html_escape, sanitize_url};
 use std::fs;
 use tracing::error;
@@ -20,7 +22,7 @@ pub fn render_index() -> String {
     let about_data = load_about_items();
     let cf_data = load_cloudflare_config();
 
-    let mut html = fs::read_to_string("templates/index.html").unwrap_or_else(|_| {
+    let html = fs::read_to_string("templates/index.html").unwrap_or_else(|_| {
         "<!doctype html><html><body><h1>templates/index.html not found</h1></body></html>"
             .to_string()
     });
@@ -75,9 +77,17 @@ pub fn render_index() -> String {
         .take(10)
         .map(|item| {
             let tag_text = item.tag.as_deref().unwrap_or("");
-            let tag_style = if tag_text.trim().is_empty() { "display:none" } else { "" };
+            let tag_style = if tag_text.trim().is_empty() {
+                "display:none"
+            } else {
+                ""
+            };
             let since_text = item.since.as_deref().unwrap_or("");
-            let since_style = if since_text.trim().is_empty() { "display:none" } else { "" };
+            let since_style = if since_text.trim().is_empty() {
+                "display:none"
+            } else {
+                ""
+            };
             changelog_tpl
                 .replace("{date}", &html_escape(&item.date))
                 .replace("{title}", &html_escape(&item.title))
@@ -89,31 +99,29 @@ pub fn render_index() -> String {
         })
         .collect::<String>();
 
-    // 替换占位符
-    html = html.replace("{{profile_title}}", &html_escape(&profile_data.current_identity));
-    html = html.replace("{{index_title}}", &html_escape(&site_config.index_title));
-    html = html.replace("{{meta_desc}}", &html_escape(&site_config.meta_desc));
-    html = html.replace(
-        "{{avatar}}",
-        &html_escape(sanitize_url(&profile_data.avatar_url)),
-    );
-    html = html.replace("{{bg}}", &html_escape(sanitize_url(&profile_data.bg_url)));
-    html = html.replace("{{ver}}", &html_escape(&profile_data.site_version));
-    html = html.replace("{{members_html}}", &members_html);
-    html = html.replace("{{intro}}", &html_escape(&profile_data.intro));
+    // 计算全部插入值：用户可配置文本先做 HTML 转义，raw HTML 片段原样保留
+    let profile_title = html_escape(&profile_data.current_identity);
+    let index_title = html_escape(&site_config.index_title);
+    let meta_desc = html_escape(&site_config.meta_desc);
+    let avatar = html_escape(sanitize_url(&profile_data.avatar_url));
+    let bg = html_escape(sanitize_url(&profile_data.bg_url));
+    let ver = html_escape(&profile_data.site_version);
+    let intro = html_escape(&profile_data.intro);
     let note_url_escaped = html_escape(sanitize_url(&profile_data.note_url));
-    let note_disabled = if profile_data.note_enable { "" } else { "disabled" };
-    html = html.replace("{{note_url}}", &note_url_escaped);
-    html = html.replace("{{note_disabled}}", note_disabled);
-    // 注入项目 HTML
-    html = html.replace("{{projects_html}}", &projects_html);
-    html = html.replace("{{about_items_html}}", &about_items_html);
-    html = html.replace("{{changelog_html}}", &changelog_html);
+    let note_disabled = if profile_data.note_enable {
+        ""
+    } else {
+        "disabled"
+    };
 
     // 注入 Cloudflare Web Analytics 脚本
     let script = if let Some(ref token) = cf_data.web_analytics_token {
         let clean_token = token.trim();
-        if clean_token.is_empty() || !clean_token.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        if clean_token.is_empty()
+            || !clean_token
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
             "".to_string()
         } else {
             CF_BEACON_TEMPLATE.replace("__CF_BEACON_TOKEN__", clean_token)
@@ -121,21 +129,46 @@ pub fn render_index() -> String {
     } else {
         "".to_string()
     };
-    html = html.replace("{{web_analytics_script}}", &script);
 
-    let raw_head = site_config.custom_head.as_deref().unwrap_or_default().trim();
+    let raw_head = site_config
+        .custom_head
+        .as_deref()
+        .unwrap_or_default()
+        .trim();
     let custom_head = raw_head.replace('\n', "\n    ").replace("{{url_path}}", "");
-    html = html.replace("{{custom_head}}", &custom_head);
 
-    let raw_footer = site_config.footer_html.as_deref().unwrap_or_default().trim();
+    let raw_footer = site_config
+        .footer_html
+        .as_deref()
+        .unwrap_or_default()
+        .trim();
     let footer_html = if raw_footer.is_empty() {
         "".to_string()
     } else {
         format!(r#"<footer class="site-footer">{}</footer>"#, raw_footer)
     };
-    html = html.replace("{{footer_html}}", &footer_html);
 
-    html
+    crate::utils::render_once(
+        &html,
+        &[
+            ("{{profile_title}}", profile_title.as_str()),
+            ("{{index_title}}", index_title.as_str()),
+            ("{{meta_desc}}", meta_desc.as_str()),
+            ("{{avatar}}", avatar.as_str()),
+            ("{{bg}}", bg.as_str()),
+            ("{{ver}}", ver.as_str()),
+            ("{{members_html}}", members_html.as_str()),
+            ("{{intro}}", intro.as_str()),
+            ("{{note_url}}", note_url_escaped.as_str()),
+            ("{{note_disabled}}", note_disabled),
+            ("{{projects_html}}", projects_html.as_str()),
+            ("{{about_items_html}}", about_items_html.as_str()),
+            ("{{changelog_html}}", changelog_html.as_str()),
+            ("{{web_analytics_script}}", script.as_str()),
+            ("{{custom_head}}", custom_head.as_str()),
+            ("{{footer_html}}", footer_html.as_str()),
+        ],
+    )
 }
 
 pub fn render_index_markdown() -> String {
@@ -149,15 +182,21 @@ pub fn render_index_markdown() -> String {
     // 1. 标题与简介
     md.push_str(&format!("# {}\n\n", site_config.index_title));
     md.push_str(&format!("> {}\n>\n", profile_data.intro));
-    
+
     let members = profile_data.team_members.join(", ");
-    md.push_str(&format!("> **当前版本**：{} | **团队成员**：{}\n\n", profile_data.site_version, members));
+    md.push_str(&format!(
+        "> **当前版本**：{} | **团队成员**：{}\n\n",
+        profile_data.site_version, members
+    ));
     md.push_str("---\n\n");
 
     // 2. 项目概览
     md.push_str("## 💻 项目概览\n\n");
     for proj in &projects_data.items {
-        md.push_str(&format!("*   **[{}]({})**：{}\n", proj.name, proj.url, proj.desc));
+        md.push_str(&format!(
+            "*   **[{}]({})**：{}\n",
+            proj.name, proj.url, proj.desc
+        ));
     }
     md.push_str("\n---\n\n");
 
@@ -185,4 +224,3 @@ pub fn render_index_markdown() -> String {
 
     md
 }
-
