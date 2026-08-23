@@ -27,3 +27,5 @@
 /.agent*
 # 认证秘密文件（哈希加盐，仍属敏感信息，不入库）
 /secrets.toml
+# 本地 wrk 基准输出（bench/run-bench.ps1 里嵌有过期 token，属本地调试产物，不入库）
+/bench/

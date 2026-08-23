@@ -34,6 +34,12 @@ async fn main() {
         std::process::exit(0);
     }
 
+    // 子命令：set-security-answers —— 交互式设置密保答案（哈希后写入 secrets.toml）
+    if std::env::args().nth(1).as_deref() == Some("set-security-answers") {
+        handle_set_security_answers_command();
+        std::process::exit(0);
+    }
+
     // 预压缩资源文件
     let assets_config = config::load_assets_config();
     if assets_config.precompress {
@@ -151,6 +157,96 @@ fn handle_set_password_command() {
     }
     println!("管理员密码已写入 secrets.toml（已哈希加盐）");
     std::process::exit(0);
+}
+
+/// `lily-nest set-security-answers`：交互式设置密保答案并写入 secrets.toml。
+///
+/// 流程：
+/// 1. 从 `config.toml` 的 `[security] admin_security_questions` 读取题目（非秘密）；
+/// 2. 检查题目不是占位符、且与 `auth_ext_secq` 设置一致；
+/// 3. 逐题用 `rpassword` 隐藏输入答案（不做二次确认，避免冗长）；
+/// 4. 把答案加盐哈希后写入 `secrets.toml` 的 `admin_security_answer_hashes`，
+///    保留已存在的 `admin_password_hash`（避免无意把 config.toml 明文密码提升进来）。
+fn handle_set_security_answers_command() {
+    let security_config = config::load_security_config();
+
+    // 1. 题目必须存在且非占位符
+    let questions = match security_config.admin_security_questions.as_ref() {
+        Some(questions) if !questions.is_empty() => questions.clone(),
+        _ => {
+            eprintln!(
+                "config.toml 的 [security] 段没有配置 admin_security_questions。\n\
+                 请先在 config.toml 里添加题目（非秘密，可明文），再运行本命令。\n\
+                 示例：\n  \
+                   admin_security_questions = [\"你的第一只宠物叫什么？\", \"你在哪里出生？\", \"你最喜欢的老师是谁？\"]"
+            );
+            std::process::exit(1);
+        }
+    };
+
+    const PLACEHOLDER_QUESTIONS: &[&str] = &["default1", "default2", "default3"];
+    if questions
+        .iter()
+        .any(|q| PLACEHOLDER_QUESTIONS.contains(&q.as_str()))
+    {
+        eprintln!(
+            "config.toml 的 admin_security_questions 仍是占位符 (default1/default2/default3)。\n\
+             请先在 config.toml 里把它替换为真实题目，再运行本命令。"
+        );
+        std::process::exit(1);
+    }
+
+    // 2. auth_ext_secq 关闭时给出提醒，但不阻止写入（运维可能想先哈希保存）
+    if security_config.auth_ext_secq != Some(true) {
+        eprintln!(
+            "[提醒] config.toml 中 auth_ext_secq = false —— 密保题在登录流程中不会被使用。\n\
+             仍然继续把答案哈希并写入 secrets.toml。\n"
+        );
+    }
+
+    // 3. 逐题交互式输入答案
+    println!("题目（来自 config.toml，共 {} 题）：", questions.len());
+    let mut new_hashes = Vec::with_capacity(questions.len());
+    for (idx, question) in questions.iter().enumerate() {
+        println!("{}. {}", idx + 1, question);
+        let answer = loop {
+            let input = match rpassword::prompt_password("   Answer: ") {
+                Ok(value) => value,
+                Err(e) => {
+                    eprintln!("读取答案失败: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            if input.is_empty() {
+                eprintln!("答案不能为空，请重新输入。");
+                continue;
+            }
+            break input;
+        };
+        new_hashes.push(secrets::hash_secret(&answer));
+    }
+
+    // 4. 合并：保留现有 password hash（仅读 secrets.toml，不读 config.toml 明文，
+    //    避免把还没迁移的明文密码意外提升进 secrets.toml）。
+    let mut secrets = secrets::load_secrets_file_only();
+    let old_answer_count = secrets.admin_security_answer_hashes.len();
+    secrets.admin_security_answer_hashes = new_hashes;
+
+    if let Err(e) = secrets::save_auth_secrets(&secrets) {
+        eprintln!("写入 secrets.toml 失败: {}", e);
+        std::process::exit(1);
+    }
+
+    println!(
+        "✅ 已写入 secrets.toml（已哈希加盐，共 {} 个密保答案；旧的 {} 个答案哈希已替换）",
+        secrets.admin_security_answer_hashes.len(),
+        old_answer_count
+    );
+    if secrets.admin_password_hash.is_none() {
+        println!(
+            "[提醒] secrets.toml 中暂无 admin_password_hash，请运行 `lily-nest set-password` 设置密码。"
+        );
+    }
 }
 
 fn generate_random_password(len: usize) -> String {
