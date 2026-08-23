@@ -6,9 +6,6 @@
 /.antigravitycli
 /CLAUDE.md
 /GEMINI.md
-# 安全审查报告仅保留在本地，不入库
-/SECURITY_AUDIT.md
-/SECURITY_AUDIT_SUPPLEMENT.md
 /static/images/*
 # 笔记粘贴上传的图片（用户内容，不入库；由 /images/notes/... 提供访问）
 /static/images/notes/
