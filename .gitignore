@@ -18,6 +18,8 @@
 /static/sitemap.xml
 /static/fonts/vendor/
 /certs/*
+!certs/example.com.pem
+!certs/example.com.key
 
 /static/**/*.br
 /static/**/*.gz
