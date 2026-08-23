@@ -158,7 +158,7 @@ pub struct SecurityConfig {
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
-            allow_origins: vec!["*".into()],
+            allow_origins: Vec::new(),
             csp_policy: "default-src 'self'; script-src 'self'; \
                          style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
                          connect-src 'self' https://cloudflare.com https://*.cloudflare.com; font-src 'self'; object-src 'none'; \
@@ -197,7 +197,6 @@ pub struct AssetsConfig {
     pub brotli_quality: u32,
     pub gzip_level: u32,
     pub html_cache_seconds: u32,
-    pub api_cache_seconds: u32,
     pub js_css_cache_seconds: u32,
     pub image_cache_seconds: u32,
     pub font_cache_seconds: u32,
@@ -230,7 +229,6 @@ impl Default for AssetsConfig {
             brotli_quality: 11,
             gzip_level: 9,
             html_cache_seconds: 3600,
-            api_cache_seconds: 0,
             js_css_cache_seconds: 86400,
             image_cache_seconds: 86400,
             font_cache_seconds: 604800,
@@ -296,6 +294,12 @@ pub struct AuthClaims {
     pub name: String, // 昵称/展示名字
     pub role: String, // "admin" 等角色标识
     pub exp: u64,
+    /// 签发时间（B19）
+    #[serde(default)]
+    pub iat: Option<u64>,
+    /// JWT ID，登出后进入服务端吊销表（B19）
+    #[serde(default)]
+    pub jti: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -347,12 +351,12 @@ pub struct NoteFrontmatter {
     pub excerpt: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NoteSummary {
     pub meta: NoteFrontmatter,
     pub filename: String,
     #[serde(default, skip_serializing)]
-    pub content: String,
+    pub content: std::sync::Arc<str>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

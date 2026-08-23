@@ -1,19 +1,23 @@
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, Path, Request, State},
     http::{HeaderValue, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::io::AsyncWriteExt;
 use tracing::{error, info};
 
 use crate::{
     config::{get_editable_configs, load_site_profile},
     middlewares::handle_admin_login,
-    model::{AdminLoginQuestion, ConfigFile, HealthResponse, HomeProfile, SaveConfigRequest},
+    model::{
+        AdminLoginQuestion, AuthClaims, ConfigFile, HealthResponse, HomeProfile, SaveConfigRequest,
+    },
     state::AppState,
 };
 
@@ -36,12 +40,35 @@ pub fn admin_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/admin/configs", get(list_configs))
         .route("/admin/configs/{name}", get(get_config).post(save_config))
+        .route("/admin/logout", post(logout))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::middlewares::admin_auth_middleware,
         ))
         .layer(DefaultBodyLimit::max(5 * 1024 * 1024))
         .with_state(state)
+}
+
+/// POST /api/v1/admin/logout — 服务端吊销当前 JWT（B19）。
+/// 该路由位于 admin_auth_middleware 之后，中间件已校验 token 有效且未吊销。
+async fn logout(State(state): State<Arc<AppState>>, req: Request) -> Response {
+    let token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("");
+
+    let validation = Validation::new(Algorithm::HS256);
+    if let Ok(data) = decode::<AuthClaims>(
+        token,
+        &DecodingKey::from_secret(&state.jwt_secret),
+        &validation,
+    ) {
+        crate::middlewares::revoke_jwt(&state, &data.claims).await;
+    }
+
+    StatusCode::NO_CONTENT.into_response()
 }
 
 async fn get_home_profile() -> Json<HomeProfile> {
@@ -111,7 +138,12 @@ async fn atomic_write_text(path: &str, content: &str) -> Result<(), std::io::Err
             .unwrap_or_default()
             .as_nanos()
     );
-    tokio::fs::write(&tmp, content).await?;
+    // M3：temp + write + flush + fsync + rename 原子落盘
+    let mut file = tokio::fs::File::create(&tmp).await?;
+    file.write_all(content.as_bytes()).await?;
+    file.flush().await?;
+    file.sync_all().await?;
+    drop(file);
     match tokio::fs::rename(&tmp, path).await {
         Ok(()) => Ok(()),
         Err(e) => {

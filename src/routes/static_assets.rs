@@ -1,3 +1,4 @@
+use crate::model::AssetsConfig;
 use axum::{
     Router,
     extract::Request,
@@ -5,10 +6,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use std::sync::Arc;
 use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
-pub fn router() -> Router {
-    let assets_config = crate::config::load_assets_config();
+pub fn router(assets_config: Arc<AssetsConfig>) -> Router {
     let mut css_dir = ServeDir::new("./static/css");
     let mut css_vendor = ServeDir::new("./static/css/vendor");
     let mut js_dir = ServeDir::new("./static/js");
@@ -46,6 +47,37 @@ pub fn router() -> Router {
     let css_service = css_dir.fallback(css_vendor);
     let js_service = js_dir.fallback(js_vendor);
     let fonts_service = fonts_dir.fallback(fonts_vendor);
+
+    let ac_robots = assets_config.clone();
+    let serve_robots = move |req: Request| {
+        let ac = ac_robots.clone();
+        async move { serve_robots_inner(ac, req).await }
+    };
+    let ac_bing = assets_config.clone();
+    let serve_bing_site_auth = move |req: Request| {
+        let ac = ac_bing.clone();
+        async move { serve_bing_site_auth_inner(ac, req).await }
+    };
+    let ac_sitemap = assets_config.clone();
+    let serve_sitemap = move |req: Request| {
+        let ac = ac_sitemap.clone();
+        async move { serve_sitemap_inner(ac, req).await }
+    };
+    let ac_favicon = assets_config.clone();
+    let serve_favicon = move |req: Request| {
+        let ac = ac_favicon.clone();
+        async move { serve_favicon_inner(ac, req).await }
+    };
+    let ac_security = assets_config.clone();
+    let serve_security_txt = move |req: Request| {
+        let ac = ac_security.clone();
+        async move { serve_security_txt_inner(ac, req).await }
+    };
+    let ac_baidu = assets_config.clone();
+    let serve_baidu_verify = move |path: axum::extract::Path<String>, req: Request| {
+        let ac = ac_baidu.clone();
+        async move { serve_baidu_verify_inner(ac, path, req).await }
+    };
 
     let root_files = Router::new()
         .route("/robots.txt", get(serve_robots))
@@ -163,31 +195,28 @@ async fn serve_static_file(
     res
 }
 
-async fn serve_robots(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_robots_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file("./static/robots.txt", "text/plain", &cc, req).await
 }
 
-async fn serve_bing_site_auth(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_bing_site_auth_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file("./static/BingSiteAuth.xml", "application/xml", &cc, req).await
 }
 
-async fn serve_sitemap(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_sitemap_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file("./static/sitemap.xml", "application/xml", &cc, req).await
 }
 
-async fn serve_favicon(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_favicon_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file("./static/favicon.ico", "image/x-icon", &cc, req).await
 }
 
-async fn serve_baidu_verify(
+async fn serve_baidu_verify_inner(
+    assets_config: Arc<AssetsConfig>,
     axum::extract::Path(baidu_verify_codeva): axum::extract::Path<String>,
     req: Request,
 ) -> Response {
@@ -201,7 +230,6 @@ async fn serve_baidu_verify(
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
         {
             let path = format!("./static/{}", baidu_verify_codeva);
-            let assets_config = crate::config::load_assets_config();
             let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
             serve_static_file(&path, "text/html; charset=utf-8", &cc, req).await
         } else {
@@ -213,8 +241,7 @@ async fn serve_baidu_verify(
     }
 }
 
-async fn serve_security_txt(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_security_txt_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file(
         "./static/.well-known/security.txt",

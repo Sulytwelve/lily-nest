@@ -20,10 +20,11 @@ const HTTP2_MAX_HEADER_LIST_SIZE: u32 = 32 * 1024;
 
 #[tokio::main]
 async fn main() {
-    // 初始化 tracing，将日志输出到控制台
+    // 初始化 tracing，将日志输出到控制台；M8：尊重 RUST_LOG，默认 info
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::registry()
         .with(fmt::layer())
-        .with(EnvFilter::new("info"))
+        .with(env_filter)
         .init();
 
     // 预压缩资源文件
@@ -37,8 +38,9 @@ async fn main() {
         warn!("无法创建 notes/ 目录: {}", e);
     }
 
-    // 构建应用（路由、静态资源等）
-    let app = app::build_app().await;
+    // 构建应用（路由、静态资源等）；assets_config 同时用于预压缩与应用状态，
+    // 避免同一份 config.toml 在启动阶段被重复解析（M2）。
+    let app = app::build_app(assets_config).await;
 
     let server_config = config::load_server_config();
 

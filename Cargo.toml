@@ -17,8 +17,10 @@ flate2 = "1.1.9"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 pulldown-cmark = "0.13.4"
 rand = "0.10"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+sha2 = "0.11.0"
 tokio = { version = "1.52.3", features = ["full"] }
 toml = "1.1.2"
 tower-http = { version = "0.7.0", features = ["fs", "cors", "trace", "set-header"] }

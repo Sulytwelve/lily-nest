@@ -44,21 +44,55 @@ pub struct RateLimitBucket {
     pub count: u32,
 }
 
-/// 有界登录限流表：按 client key 分桶，并定期清理过期桶（B26）。
-///
-/// 注意：`Instant` 没有 `Default` 实现，因此这里不能 `#[derive(Default)]`，
-/// 采用等价的手写实现。
-pub struct RateLimitTable {
+/// 有界登录限流分片：按 client key 分桶，并定期清理过期桶（B26）。
+pub struct RateLimitShard {
     pub buckets: HashMap<String, RateLimitBucket>,
     pub last_cleanup: Instant,
 }
 
-impl Default for RateLimitTable {
+impl Default for RateLimitShard {
     fn default() -> Self {
         Self {
             buckets: HashMap::new(),
             last_cleanup: Instant::now(),
         }
+    }
+}
+
+/// 分片限流表（B26）：把登录请求分散到多个互斥分片上，避免单个
+/// `Mutex<HashMap>` 成为全登录请求的串行点；每个分片仍有独立上限。
+pub struct RateLimitTable {
+    shards: Vec<Mutex<RateLimitShard>>,
+    per_shard_limit: usize,
+}
+
+impl RateLimitTable {
+    pub fn new(shard_count: usize, per_shard_limit: usize) -> Self {
+        let shard_count = shard_count.max(1);
+        let mut shards = Vec::with_capacity(shard_count);
+        for _ in 0..shard_count {
+            shards.push(Mutex::new(RateLimitShard::default()));
+        }
+        Self {
+            shards,
+            per_shard_limit,
+        }
+    }
+
+    fn shard_index(&self, key: &str) -> usize {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        (hasher.finish() as usize) % self.shards.len()
+    }
+
+    pub async fn lock_shard(&self, key: &str) -> tokio::sync::MutexGuard<'_, RateLimitShard> {
+        let idx = self.shard_index(key);
+        self.shards[idx].lock().await
+    }
+
+    pub fn per_shard_limit(&self) -> usize {
+        self.per_shard_limit
     }
 }
 
@@ -68,7 +102,9 @@ pub struct AppState {
     pub assets_config: Arc<AssetsConfig>,
     pub markdown_config: Arc<MarkdownConfig>,
     pub cloudflare_config: Arc<crate::model::CloudflareConfig>,
-    pub auth_rate_limiter: Mutex<RateLimitTable>,
+    pub auth_rate_limiter: RateLimitTable,
+    /// B19：服务端吊销表，key 为 JWT 的 jti，value 为过期时间戳；过期后由登录/登出流程清理。
+    pub revoked_jtis: Mutex<HashMap<String, u64>>,
     /// 优先从环境变量 LILY_JWT_SECRET 或本地 .jwt_secret 文件加载，保证重启后会话持久
     pub jwt_secret: Vec<u8>,
     /// Agent 公钥（优先 .agent.pub，支持 Ed25519 非对称 JWT 验签）

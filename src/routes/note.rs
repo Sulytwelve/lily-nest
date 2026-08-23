@@ -27,11 +27,13 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-/// 开发模式：从磁盘重载索引
+/// 开发模式：从磁盘重载索引。
+/// B28：先在锁外完成全盘 IO，再短期持锁做指针替换，避免阻塞所有读请求。
 async fn reload_index_in_debug(state: &Arc<AppState>) {
     if cfg!(debug_assertions) {
+        let new_index = crate::note_loader::load_all_notes().await;
         let mut index = state.note_index.write().await;
-        *index = crate::note_loader::load_all_notes().await;
+        *index = new_index;
     }
 }
 
@@ -162,9 +164,10 @@ async fn handle_note_list(
         .as_deref()
         .unwrap_or_default()
         .trim();
-    let custom_head = raw_head
-        .replace('\n', "\n    ")
-        .replace("{{url_path}}", "note");
+    let custom_head = crate::utils::render_once(
+        &raw_head.replace('\n', "\n    "),
+        &[("{{url_path}}", "note")],
+    );
 
     let raw_footer = site_config
         .footer_html
@@ -268,7 +271,11 @@ async fn handle_note_detail(
         let file_path = format!("notes/{}", filename);
         if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
             if wants_markdown {
-                let mut res = Response::new(axum::body::Body::from(content));
+                // B33：剥离 frontmatter，只返回笔记正文，不泄露 updated_at 等元数据。
+                let markdown_body = crate::note_loader::parse_note(&content)
+                    .map(|(_, body)| body)
+                    .unwrap_or_else(|| content.clone());
+                let mut res = Response::new(axum::body::Body::from(markdown_body));
                 res.headers_mut().insert(
                     header::CONTENT_TYPE,
                     HeaderValue::from_static("text/markdown; charset=utf-8"),
@@ -330,9 +337,10 @@ async fn handle_note_detail(
                     .as_deref()
                     .unwrap_or_default()
                     .trim();
-                let custom_head = raw_head
-                    .replace('\n', "\n  ")
-                    .replace("{{url_path}}", &format!("note/{}", slug));
+                let custom_head = crate::utils::render_once(
+                    &raw_head.replace('\n', "\n  "),
+                    &[("{{url_path}}", format!("note/{}", slug).as_str())],
+                );
 
                 let raw_footer = site_config
                     .footer_html

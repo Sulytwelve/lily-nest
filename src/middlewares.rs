@@ -11,7 +11,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use tower_http::cors::{Any, CorsLayer};
+use rand::Rng;
+use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
 
 use crate::{
@@ -32,33 +33,80 @@ pub fn build_cors_layer(security_config: &SecurityConfig) -> CorsLayer {
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
-    if security_config.allow_origins.contains(&"*".to_string()) {
-        cors.allow_origin(Any)
-    } else {
-        let origins: Vec<HeaderValue> = security_config
-            .allow_origins
-            .iter()
-            .filter_map(|o| match o.parse() {
-                Ok(v) => Some(v),
-                Err(_) => {
-                    error!("[security] 解析失败, 非法的配置: {}", o);
-                    None
-                }
-            })
-            .collect();
-        cors.allow_origin(origins)
+    if security_config.allow_origins.iter().any(|o| o == "*") {
+        error!(
+            "[security] allow_origins 包含通配符 '*'，已忽略。请配置真实源站，或留空以关闭 CORS。"
+        );
+        return cors;
     }
+
+    if security_config.allow_origins.is_empty() {
+        return cors;
+    }
+
+    let origins: Vec<HeaderValue> = security_config
+        .allow_origins
+        .iter()
+        .filter_map(|o| match o.parse() {
+            Ok(v) => Some(v),
+            Err(_) => {
+                error!("[security] 解析失败, 非法的配置: {}", o);
+                None
+            }
+        })
+        .collect();
+    cors.allow_origin(origins)
 }
 
 /// 零依赖恒定时间字符串比较（仅用于密码/密保答案这类短字符串）。
+///
+/// 固定比较 256 个字节，两个方向都用不同的填充字节，并混入长度差异，
+/// 避免「长度不等时提前返回」造成的长度侧信道。
 fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
+    const CMP_LEN: usize = 256;
+    const PAD_A: u8 = 0xA5;
+    const PAD_B: u8 = 0x5A;
+
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+    let mut diff = (a_bytes.len() ^ b_bytes.len()) as u16;
+
+    for i in 0..CMP_LEN {
+        let x = a_bytes.get(i).copied().unwrap_or(PAD_A);
+        let y = b_bytes.get(i).copied().unwrap_or(PAD_B);
+        diff |= (x ^ y) as u16;
     }
-    a.bytes()
-        .zip(b.bytes())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
+
+    diff == 0
+}
+
+/// B19：查询 jti 是否在服务端吊销表中，并顺带清理已过期条目。
+async fn is_jwt_revoked(state: &Arc<AppState>, claims: &AuthClaims) -> bool {
+    let Some(jti) = claims.jti.as_deref() else {
+        return false;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let mut revoked = state.revoked_jtis.lock().await;
+    revoked.retain(|_, exp| *exp > now);
+    revoked.contains_key(jti)
+}
+
+/// B19：把 jti 写入吊销表，失效时间与 token exp 一致。
+pub async fn revoke_jwt(state: &Arc<AppState>, claims: &AuthClaims) {
+    let Some(jti) = claims.jti.as_deref() else {
+        return;
+    };
+    let exp = claims.exp;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if exp > now {
+        state.revoked_jtis.lock().await.insert(jti.to_string(), exp);
+    }
 }
 
 pub async fn security_headers(
@@ -138,6 +186,15 @@ pub async fn security_headers(
     headers_map.insert(
         header::STRICT_TRANSPORT_SECURITY,
         HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    );
+    // M6：收紧跨源隔离
+    headers_map.insert(
+        HeaderName::from_static("cross-origin-opener-policy"),
+        HeaderValue::from_static("same-origin"),
+    );
+    headers_map.insert(
+        HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("same-origin"),
     );
 
     // 动态 headers — 仅这 2 个需要运行时构建
@@ -230,23 +287,24 @@ pub async fn handle_admin_login(
 
     let client_ip = resolve_client_ip(peer, &headers, security_config.trusted_proxy_ips.as_ref());
 
-    // Rate limiting — 有界限流表（B26），只有登录请求才消耗限额
-    const MAX_RATE_LIMIT_KEYS: usize = 100_000;
+    // Rate limiting — 分片有界限流表（B26），只有登录请求才消耗限额
+    const RATE_LIMIT_WINDOW_SECS: u64 = 60;
     {
         let now = Instant::now();
-        let mut table = state.auth_rate_limiter.lock().await;
+        let mut shard = state.auth_rate_limiter.lock_shard(&client_ip).await;
 
-        if table.last_cleanup.elapsed() >= Duration::from_secs(60) {
-            table
-                .buckets
-                .retain(|_, b| now.duration_since(b.window_start) < Duration::from_secs(60));
-            table.last_cleanup = now;
+        if shard.last_cleanup.elapsed() >= Duration::from_secs(RATE_LIMIT_WINDOW_SECS) {
+            shard.buckets.retain(|_, b| {
+                now.duration_since(b.window_start) < Duration::from_secs(RATE_LIMIT_WINDOW_SECS)
+            });
+            shard.last_cleanup = now;
         }
 
-        if table.buckets.len() >= MAX_RATE_LIMIT_KEYS && !table.buckets.contains_key(&client_ip) {
-            drop(table);
+        let shard_limit = state.auth_rate_limiter.per_shard_limit();
+        if shard.buckets.len() >= shard_limit && !shard.buckets.contains_key(&client_ip) {
+            drop(shard);
             warn!(
-                "Admin login rate limiter table is full; rejecting IP: {}",
+                "Admin login rate limiter shard is full; rejecting IP: {}",
                 client_ip
             );
             return (
@@ -258,7 +316,7 @@ pub async fn handle_admin_login(
         }
 
         let bucket =
-            table
+            shard
                 .buckets
                 .entry(client_ip.clone())
                 .or_insert(crate::state::RateLimitBucket {
@@ -266,13 +324,13 @@ pub async fn handle_admin_login(
                     count: 0,
                 });
 
-        if now.duration_since(bucket.window_start) >= Duration::from_secs(60) {
+        if now.duration_since(bucket.window_start) >= Duration::from_secs(RATE_LIMIT_WINDOW_SECS) {
             bucket.window_start = now;
             bucket.count = 0;
         }
 
         if bucket.count >= 5 {
-            drop(table);
+            drop(shard);
             warn!("Admin login rate limit exceeded for IP: {}", client_ip);
             return (
                 StatusCode::TOO_MANY_REQUESTS,
@@ -309,7 +367,11 @@ pub async fn handle_admin_login(
         .allowed_locs
         .clone()
         .unwrap_or_else(|| vec!["CN".to_string()]);
-    let expiry_secs = security_config.jwt_expiry_secs.unwrap_or(28800);
+    // M5：JWT 有效期设上下限，避免无上限长命 token
+    let expiry_secs = security_config
+        .jwt_expiry_secs
+        .unwrap_or(28800)
+        .clamp(60, 86400);
 
     // 1. 验证密码
     let password_ok = match &actual_password {
@@ -517,11 +579,19 @@ pub async fn handle_admin_login(
         .as_secs();
     let expires_at = now_secs.saturating_add(expiry_secs);
 
+    let mut jti_bytes = [0u8; 16];
+    rand::rng().fill_bytes(&mut jti_bytes);
+    let jti = jti_bytes
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
     let claims = AuthClaims {
         sub: "admin".to_string(),
         name: "管理员".to_string(),
         role: "admin".to_string(),
         exp: expires_at,
+        iat: Some(now_secs),
+        jti: Some(jti),
     };
 
     let token = match encode(
@@ -589,6 +659,15 @@ pub async fn admin_auth_middleware(
         &validation,
     ) {
         Ok(data) if data.claims.role == "admin" => {
+            if is_jwt_revoked(&state, &data.claims).await {
+                warn!("Admin JWT rejected: token has been revoked (jti)");
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    [(header::WWW_AUTHENTICATE, "Bearer")],
+                    "Unauthorized",
+                )
+                    .into_response();
+            }
             // Token 有效且角色为 admin，放行
             next.run(req).await
         }
@@ -647,6 +726,10 @@ pub async fn note_auth_middleware(
         &DecodingKey::from_secret(&state.jwt_secret),
         &validation_hs256,
     ) {
+        if is_jwt_revoked(&state, &data.claims).await {
+            warn!("Note API request rejected: token has been revoked (jti)");
+            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        }
         if data.claims.role == "admin" || data.claims.role == "agent" {
             return next.run(req).await;
         } else {
@@ -666,6 +749,10 @@ pub async fn note_auth_middleware(
 
         if let Ok(key) = decoding_key {
             if let Ok(data) = decode::<AuthClaims>(&token, &key, &validation_asym) {
+                if is_jwt_revoked(&state, &data.claims).await {
+                    warn!("Note API request rejected: agent token has been revoked (jti)");
+                    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                }
                 if data.claims.role == "agent" || data.claims.role == "admin" {
                     info!(
                         "Agent public key authentication successful for sub: {}",

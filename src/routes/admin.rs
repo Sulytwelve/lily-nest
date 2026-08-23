@@ -49,7 +49,10 @@ async fn admin_page_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
         .unwrap_or_else(|_| "{}".to_string())
         .replace("</", "<\\/");
 
-    let body = Html(html.replace("{{auth_config_json}}", &auth_config_str));
+    let body = Html(crate::utils::render_once(
+        &html,
+        &[("{{auth_config_json}}", auth_config_str.as_str())],
+    ));
     (
         [
             (

@@ -95,12 +95,22 @@ document.addEventListener('DOMContentLoaded', () => {
         authExtCftraceEnabled = config.auth_ext_cftrace;
         questionCount = config.question_count || 0;
         if (authExtSecqEnabled) {
-            securityQuestionContainer.innerHTML = `
-                <p id="security-question-label" class="md-typescale-body-medium" style="margin-bottom: 8px; color: var(--md-sys-color-primary);"></p>
-                <md-outlined-text-field id="security-answer-input" label="Security Answer" style="width: 100%;"></md-outlined-text-field>
-            `;
-            securityAnswerInput = document.getElementById('security-answer-input');
-            securityQuestionLabel = document.getElementById('security-question-label');
+            securityQuestionContainer.innerHTML = '';
+            const label = document.createElement('p');
+            label.id = 'security-question-label';
+            label.className = 'md-typescale-body-medium';
+            label.style.marginBottom = '8px';
+            label.style.color = 'var(--md-sys-color-primary)';
+            securityQuestionContainer.appendChild(label);
+
+            const input = document.createElement('md-outlined-text-field');
+            input.id = 'security-answer-input';
+            input.setAttribute('label', 'Security Answer');
+            input.style.width = '100%';
+            securityQuestionContainer.appendChild(input);
+
+            securityAnswerInput = input;
+            securityQuestionLabel = label;
             securityAnswerInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') loginConfirmBtn.click();
             });
@@ -352,7 +362,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    logoutBtn.addEventListener('click', () => {
+    logoutBtn.addEventListener('click', async () => {
+        if (jwtToken) {
+            try {
+                await fetchWithTimeout('/api/v1/admin/logout', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${jwtToken}` },
+                });
+            } catch (e) {
+                console.warn('Admin: logout request failed', e);
+            }
+        }
         clearToken();
         window.location.reload();
     });
@@ -430,10 +450,68 @@ document.addEventListener('DOMContentLoaded', () => {
     const editExcerpt = document.getElementById('editExcerpt');
     const editContent = document.getElementById('editContent');
     const editorTitleText = document.getElementById('editorTitleText');
+    const noteEditorStatus = document.getElementById('noteEditorStatus');
 
     let currentEditingSlug = null;
     let currentTags = [];
     let allAvailableTags = new Set();
+
+    function setNoteEditorStatus(msg, isError = false) {
+        if (!noteEditorStatus) return;
+        noteEditorStatus.textContent = msg;
+        noteEditorStatus.style.color = isError
+            ? 'var(--md-sys-color-error)'
+            : 'var(--md-sys-color-on-surface-variant)';
+    }
+
+    function insertAtCursor(textarea, text) {
+        const start = textarea.selectionStart ?? textarea.value.length;
+        const end = textarea.selectionEnd ?? textarea.value.length;
+        textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
+        textarea.selectionStart = textarea.selectionEnd = start + text.length;
+        textarea.focus();
+    }
+
+    async function uploadNoteImage(file) {
+        if (!isTokenValid()) {
+            clearToken();
+            await showAuthDialog();
+            throw new Error('Unauthorized');
+        }
+
+        const headers = { 'Authorization': `Bearer ${jwtToken}` };
+        if (file.type) headers['Content-Type'] = file.type;
+
+        let response;
+        try {
+            response = await fetchWithTimeout('/admin/notes/images', {
+                method: 'POST',
+                headers,
+                body: file,
+            }, 30000);
+        } catch (e) {
+            setNoteEditorStatus('图片上传失败：网络错误', true);
+            throw e;
+        }
+
+        if (response.status === 401) {
+            clearToken();
+            await showAuthDialog();
+            throw new Error('Unauthorized');
+        }
+
+        if (!response.ok) {
+            const msg = response.status === 413
+                ? '图片上传失败：超过 5MB 限制'
+                : '图片上传失败：仅支持 PNG / JPG / GIF / WebP';
+            setNoteEditorStatus(msg, true);
+            throw new Error(msg);
+        }
+
+        const data = await response.json();
+        setNoteEditorStatus('图片已上传：' + data.url);
+        return data;
+    }
 
     async function loadNotes() {
         try {
@@ -568,6 +646,33 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderSelectedTags();
                 }
                 tagInput.value = '';
+            }
+        });
+    }
+
+    if (editContent) {
+        editContent.addEventListener('paste', async (e) => {
+            const items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+
+            let imageFile = null;
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    imageFile = item.getAsFile();
+                    break;
+                }
+            }
+            if (!imageFile) return;
+
+            e.preventDefault();
+            setNoteEditorStatus('正在上传图片...');
+            try {
+                const data = await uploadNoteImage(imageFile);
+                const alt = (imageFile.name || 'image').replace(/\.[^.]+$/, '');
+                insertAtCursor(editContent, `![${alt}](${data.url})`);
+            } catch (err) {
+                console.warn('Admin: image paste failed', err);
             }
         });
     }

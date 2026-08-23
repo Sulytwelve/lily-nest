@@ -7,13 +7,26 @@ use tokio::sync::{Mutex, RwLock};
 use crate::{
     config::load_security_config,
     middlewares::{build_cors_layer, security_headers},
+    model::AssetsConfig,
     routes,
     state::AppState,
 };
 
-pub async fn build_app() -> Router {
+/// 在 Unix 上把 `.jwt_secret` 权限收紧为 `0600`，防止同机其他用户读取（B9）。
+#[cfg(unix)]
+fn set_owner_only_permissions(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+        tracing::error!("failed to chmod 0600 on {}: {}", path.display(), e);
+    }
+}
+
+#[cfg(not(unix))]
+fn set_owner_only_permissions(_path: &std::path::Path) {}
+
+pub async fn build_app(assets_config: AssetsConfig) -> Router {
     let security_config = load_security_config();
-    let assets_config = crate::config::load_assets_config();
+    let assets_config = Arc::new(assets_config);
     let markdown_config = crate::config::load_markdown_config();
 
     // 优先从环境变量 LILY_JWT_SECRET 或本地 .jwt_secret 文件加载，保证重启后会话持久
@@ -33,33 +46,26 @@ pub async fn build_app() -> Router {
             match std::fs::read(secret_path) {
                 Ok(sec) if sec.len() >= 32 => sec,
                 Ok(short) => {
-                    tracing::warn!(
-                        ".jwt_secret is too short ({} bytes); regenerating a new secret",
+                    tracing::error!(
+                        ".jwt_secret is too short ({} bytes); refusing to start. \
+                         Delete the file or set LILY_JWT_SECRET to a >=32 byte value.",
                         short.len()
                     );
-                    let mut new_sec = vec![0u8; 64];
-                    rand::rng().fill_bytes(&mut new_sec);
-                    if let Err(e) = std::fs::write(secret_path, &new_sec) {
-                        tracing::warn!("failed to write regenerated .jwt_secret: {e}");
-                    }
-                    new_sec
+                    panic!(".jwt_secret must be at least 32 bytes");
                 }
                 Err(e) => {
-                    tracing::warn!("failed to read .jwt_secret ({}); generating a new one", e);
-                    let mut new_sec = vec![0u8; 64];
-                    rand::rng().fill_bytes(&mut new_sec);
-                    if let Err(e) = std::fs::write(secret_path, &new_sec) {
-                        tracing::warn!("failed to write .jwt_secret: {e}");
-                    }
-                    new_sec
+                    tracing::error!("failed to read .jwt_secret ({}); refusing to start", e);
+                    panic!("failed to read .jwt_secret: {e}");
                 }
             }
         } else {
             let mut new_sec = vec![0u8; 64];
             rand::rng().fill_bytes(&mut new_sec);
             if let Err(e) = std::fs::write(secret_path, &new_sec) {
-                tracing::warn!("failed to write .jwt_secret: {e}");
+                tracing::error!("failed to write .jwt_secret ({}); refusing to start", e);
+                panic!("failed to write .jwt_secret: {e}");
             }
+            set_owner_only_permissions(secret_path);
             new_sec
         }
     };
@@ -85,10 +91,11 @@ pub async fn build_app() -> Router {
             assets_config.html_cache_seconds,
         )),
         security_config: Arc::new(security_config),
-        assets_config: Arc::new(assets_config),
+        assets_config: assets_config.clone(),
         markdown_config: Arc::new(markdown_config),
         cloudflare_config: Arc::new(crate::config::load_cloudflare_config()),
-        auth_rate_limiter: Mutex::new(crate::state::RateLimitTable::default()),
+        auth_rate_limiter: crate::state::RateLimitTable::new(16, 10_000),
+        revoked_jtis: Mutex::new(HashMap::new()),
         jwt_secret,
         note_index: RwLock::new(crate::note_loader::load_all_notes().await),
         note_html_cache: RwLock::new(HashMap::new()),
@@ -114,7 +121,7 @@ pub async fn build_app() -> Router {
             security_headers,
         ));
 
-    let static_routes = routes::static_assets::router()
+    let static_routes = routes::static_assets::router(assets_config)
         .layer(middleware::from_fn_with_state(state, security_headers));
 
     app_routes.merge(static_routes)

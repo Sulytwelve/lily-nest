@@ -62,7 +62,7 @@ pub async fn load_all_notes() -> Vec<NoteSummary> {
                 notes.push(NoteSummary {
                     meta,
                     filename,
-                    content: markdown_body,
+                    content: std::sync::Arc::from(markdown_body),
                 });
             } else {
                 tracing::warn!("无法解析文件名跳过加载: {:?}", path);

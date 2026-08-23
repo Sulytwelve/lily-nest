@@ -33,11 +33,11 @@ pub fn render_index() -> String {
     let divider_tpl = load_fragment("project_divider.html");
     let about_tpl = load_fragment("about_item.html");
 
-    // 1. 组装成员
+    // 1. 组装成员（N1：单遍渲染，避免值中的占位符被二次替换）
     let members_html = profile_data
         .team_members
         .iter()
-        .map(|m| member_tpl.replace("{name}", &html_escape(m)))
+        .map(|m| crate::utils::render_once(&member_tpl, &[("{name}", html_escape(m).as_str())]))
         .collect::<String>();
 
     // 2. 组装项目预览
@@ -48,10 +48,17 @@ pub fn render_index() -> String {
         .map(|(i, proj)| {
             // 如果不是第一个元素，在前面加一个分割线
             let divider = if i > 0 { divider_tpl.as_str() } else { "" };
-            let rendered = project_tpl
-                .replace("{url}", &html_escape(sanitize_url(&proj.url)))
-                .replace("{name}", &html_escape(&proj.name))
-                .replace("{desc}", &html_escape(&proj.desc));
+            let url = html_escape(sanitize_url(&proj.url));
+            let name = html_escape(&proj.name);
+            let desc = html_escape(&proj.desc);
+            let rendered = crate::utils::render_once(
+                &project_tpl,
+                &[
+                    ("{url}", url.as_str()),
+                    ("{name}", name.as_str()),
+                    ("{desc}", desc.as_str()),
+                ],
+            );
             format!("{divider}{rendered}")
         })
         .collect::<String>();
@@ -61,10 +68,17 @@ pub fn render_index() -> String {
         .items
         .iter()
         .map(|item| {
-            about_tpl
-                .replace("{icon}", &html_escape(sanitize_url(&item.icon_url)))
-                .replace("{title}", &html_escape(&item.title))
-                .replace("{content}", &html_escape(&item.content))
+            let icon = html_escape(sanitize_url(&item.icon_url));
+            let title = html_escape(&item.title);
+            let content = html_escape(&item.content);
+            crate::utils::render_once(
+                &about_tpl,
+                &[
+                    ("{icon}", icon.as_str()),
+                    ("{title}", title.as_str()),
+                    ("{content}", content.as_str()),
+                ],
+            )
         })
         .collect::<String>();
 
@@ -88,14 +102,23 @@ pub fn render_index() -> String {
             } else {
                 ""
             };
-            changelog_tpl
-                .replace("{date}", &html_escape(&item.date))
-                .replace("{title}", &html_escape(&item.title))
-                .replace("{content}", &html_escape(&item.content))
-                .replace("{tag}", &html_escape(tag_text))
-                .replace("{tag_style}", tag_style)
-                .replace("{since}", &html_escape(since_text))
-                .replace("{since_style}", since_style)
+            let date = html_escape(&item.date);
+            let title = html_escape(&item.title);
+            let content = html_escape(&item.content);
+            let tag = html_escape(tag_text);
+            let since = html_escape(since_text);
+            crate::utils::render_once(
+                &changelog_tpl,
+                &[
+                    ("{date}", date.as_str()),
+                    ("{title}", title.as_str()),
+                    ("{content}", content.as_str()),
+                    ("{tag}", tag.as_str()),
+                    ("{tag_style}", tag_style),
+                    ("{since}", since.as_str()),
+                    ("{since_style}", since_style),
+                ],
+            )
         })
         .collect::<String>();
 
@@ -135,7 +158,8 @@ pub fn render_index() -> String {
         .as_deref()
         .unwrap_or_default()
         .trim();
-    let custom_head = raw_head.replace('\n', "\n    ").replace("{{url_path}}", "");
+    let custom_head =
+        crate::utils::render_once(&raw_head.replace('\n', "\n    "), &[("{{url_path}}", "")]);
 
     let raw_footer = site_config
         .footer_html

@@ -17,18 +17,15 @@ gzip_level = 9
 
 # 缓存时长配置 (秒)
 html_cache_seconds = 3600             # 主页 HTML 缓存时长，默认 1 小时
-api_cache_seconds = 0                 # API 缓存时长，默认 0 (不缓存)
 js_css_cache_seconds = 86400          # JS 和 CSS 资源缓存时长，默认 1 天
 image_cache_seconds = 86400           # 图片资源缓存时长，默认 1 天
 font_cache_seconds = 604800           # 字体资源（woff, woff2, ttf 等）缓存时长，默认 7 天
 other_cache_seconds = 3600            # 其他根目录文件（robots.txt, favicon.ico 等）缓存时长，默认 1 小时
 
 [security]
-# allow_origins = [
-#     "https://example.com",
-#     "https://cloudflareinsights.com",
-# ]
-allow_origins = ["*"]
+# 跨域白名单：管理后台与 Agent 接口均同源/机器调用，不需要 CORS。
+# 如需跨域访问公开 API（/api/v1/home/profile、/api/v1/health），在这里添加真实源站。
+allow_origins = []
 # 仅当 TCP 对端是这些 IP（或 loopback，如本机 cloudflared）时才信任
 # cf-connecting-ip / x-forwarded-* 等代理头；留空 = 只信 loopback。
 trusted_proxy_ips = []
