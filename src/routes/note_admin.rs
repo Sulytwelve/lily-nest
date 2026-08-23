@@ -225,8 +225,9 @@ async fn upload_note_image(req: Request) -> Response {
 
 async fn create_note(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<AdminNoteSaveRequest>,
+    payload: Result<Json<AdminNoteSaveRequest>, axum::extract::rejection::JsonRejection>,
 ) -> Result<StatusCode, StatusCode> {
+    let Json(payload) = payload.map_err(|_| StatusCode::BAD_REQUEST)?;
     validate_note_payload(&payload)?;
 
     let now = Local::now();
@@ -311,8 +312,9 @@ async fn create_note(
 async fn update_note(
     State(state): State<Arc<AppState>>,
     Path(slug): Path<String>,
-    Json(payload): Json<AdminNoteSaveRequest>,
+    payload: Result<Json<AdminNoteSaveRequest>, axum::extract::rejection::JsonRejection>,
 ) -> Result<StatusCode, StatusCode> {
+    let Json(payload) = payload.map_err(|_| StatusCode::BAD_REQUEST)?;
     validate_note_payload(&payload)?;
 
     let (old_filename, old_date) = {

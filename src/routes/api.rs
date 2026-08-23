@@ -403,11 +403,8 @@ async fn save_config(
             "site.toml" => {
                 #[derive(serde::Deserialize)]
                 struct SiteWrapper {
-                    #[serde(default)]
                     profile: crate::model::HomeProfile,
-                    #[serde(default)]
                     site: crate::model::SiteConfig,
-                    #[serde(default)]
                     note: crate::model::NoteConfig,
                 }
                 toml::from_str::<SiteWrapper>(&payload.content)
