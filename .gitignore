@@ -24,3 +24,5 @@
 /static/**/*.zst
 /.jwt_secret
 /.agent*
+# 认证秘密文件（哈希加盐，仍属敏感信息，不入库）
+/secrets.toml
