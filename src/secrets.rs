@@ -184,6 +184,13 @@ pub fn save_auth_secrets(secrets: &AuthSecrets) -> io::Result<()> {
     Ok(())
 }
 
+/// 计算字节串的 SHA-256 十六进制摘要（用于 ETag 等非秘密用途）。
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    let digest = Sha256::digest(bytes);
+    to_hex(&digest)
+}
+
 fn random_bytes(len: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; len];
     rand::rng().fill_bytes(&mut bytes);

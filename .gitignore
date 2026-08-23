@@ -18,6 +18,8 @@
 /static/sitemap.xml
 /static/fonts/vendor/
 /certs/*
+# 例外的 example.com.pem/key 是项目自带的不可用自签测试证书，仅供 clone 后本地测试；
+# 正式部署请使用自己的证书，或使用 force-http 特性。
 !certs/example.com.pem
 !certs/example.com.key
 

@@ -79,6 +79,18 @@ pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
+/// 登录/鉴权失败响应统一附加防缓存头，避免错误响应被浏览器或代理缓存。
+fn auth_error(status: StatusCode, msg: &'static str) -> Response {
+    let mut res = (status, msg).into_response();
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    res.headers_mut()
+        .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    res.headers_mut()
+        .insert(header::EXPIRES, HeaderValue::from_static("0"));
+    res
+}
+
 /// B19：查询 jti 是否在服务端吊销表中，并顺带清理已过期条目。
 async fn is_jwt_revoked(state: &Arc<AppState>, claims: &AuthClaims) -> bool {
     let Some(jti) = claims.jti.as_deref() else {
@@ -350,7 +362,14 @@ pub async fn handle_admin_login(
     .await
     {
         Ok(Ok(b)) => b,
-        Ok(Err(_)) => return (StatusCode::BAD_REQUEST, "Invalid request body").into_response(),
+        Ok(Err(err)) => {
+            let is_length_limit = std::error::Error::source(&err)
+                .is_some_and(|source| source.is::<http_body_util::LengthLimitError>());
+            if is_length_limit {
+                return (StatusCode::PAYLOAD_TOO_LARGE, "Payload too large").into_response();
+            }
+            return (StatusCode::BAD_REQUEST, "Invalid request body").into_response();
+        }
         Err(_) => return (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
     };
     let payload: AdminLoginRequest = match serde_json::from_slice(&body_bytes) {
@@ -381,18 +400,17 @@ pub async fn handle_admin_login(
             error!(
                 "[Security] Admin login attempt rejected: Admin password not configured on server."
             );
-            return (
+            return auth_error(
                 StatusCode::UNAUTHORIZED,
                 "Admin password is not configured. Run lily-nest set-password.",
-            )
-                .into_response();
+            );
         }
         Some(hash) => crate::secrets::verify_secret(&payload.password, hash),
     };
 
     if !password_ok {
         warn!("Admin login failed: wrong password. IP: {}", client_ip);
-        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
     }
 
     // 2. 验证安全问题（可选）
@@ -401,7 +419,7 @@ pub async fn handle_admin_login(
             Some(q) => q,
             None => {
                 error!("[Security] auth_ext_secq enabled but no security questions configured");
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
             }
         };
         if answer_hashes.is_empty() || answer_hashes.len() != questions.len() {
@@ -410,7 +428,7 @@ pub async fn handle_admin_login(
                 answer_hashes.len(),
                 questions.len()
             );
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
         if questions
             .iter()
@@ -419,7 +437,7 @@ pub async fn handle_admin_login(
             error!(
                 "[Security] auth_ext_secq enabled but placeholder/default security questions are in use"
             );
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
         match (payload.question_index, &payload.answer) {
             (Some(idx), Some(ans)) if idx < answer_hashes.len() => {
@@ -428,7 +446,7 @@ pub async fn handle_admin_login(
                         "Admin login failed: wrong security answer (idx={}). IP: {}",
                         idx, client_ip
                     );
-                    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                    return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
                 }
             }
             _ => {
@@ -436,7 +454,7 @@ pub async fn handle_admin_login(
                     "Admin login failed: security question index or answer missing. IP: {}",
                     client_ip
                 );
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
             }
         }
     }
@@ -470,7 +488,7 @@ pub async fn handle_admin_login(
                         "Admin login failed: CF Trace loc '{}' not allowed. IP: {}",
                         l, client_ip
                     );
-                    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                    return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
                 }
                 true
             }
@@ -479,7 +497,7 @@ pub async fn handle_admin_login(
                     "Admin login failed: CF Trace loc missing. IP: {}",
                     client_ip
                 );
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
             }
         };
 
@@ -488,14 +506,14 @@ pub async fn handle_admin_login(
                 "Admin login failed: CF Trace WARP is off. IP: {}",
                 client_ip
             );
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
         if loc_ok && gateway.as_deref() != Some("on") {
             warn!(
                 "Admin login failed: CF Trace Gateway is off. IP: {}",
                 client_ip
             );
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
 
         // ip 与 h 为必填，缺失直接拒绝（fail-closed）
@@ -503,7 +521,7 @@ pub async fn handle_admin_login(
             Some(ip) => ip,
             None => {
                 warn!("Admin login failed: CF Trace ip missing. IP: {}", client_ip);
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
             }
         };
         let trace_host = match trace_host {
@@ -513,7 +531,7 @@ pub async fn handle_admin_login(
                     "Admin login failed: CF Trace host missing. IP: {}",
                     client_ip
                 );
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
             }
         };
 
@@ -523,7 +541,7 @@ pub async fn handle_admin_login(
                 "[Security] Trace IP '{}' does not match CF-Connecting-IP '{}'. IP: {}",
                 trace_ip, client_ip, client_ip
             );
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
 
         // 校验 trace host 与请求 host 一致性
@@ -558,7 +576,7 @@ pub async fn handle_admin_login(
                 "[Security] Trace host '{}' does not match request host '{}'. IP: {}",
                 trace_host, request_host, client_ip
             );
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
     }
 
@@ -718,7 +736,7 @@ pub async fn note_auth_middleware(
     ) {
         if is_jwt_revoked(&state, &data.claims).await {
             warn!("Note API request rejected: token has been revoked (jti)");
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
         if data.claims.role == "admin" || data.claims.role == "agent" {
             return next.run(req).await;
@@ -741,7 +759,7 @@ pub async fn note_auth_middleware(
             if let Ok(data) = decode::<AuthClaims>(&token, &key, &validation_asym) {
                 if is_jwt_revoked(&state, &data.claims).await {
                     warn!("Note API request rejected: agent token has been revoked (jti)");
-                    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                    return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
                 }
                 if data.claims.role == "agent" || data.claims.role == "admin" {
                     info!(

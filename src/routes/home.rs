@@ -55,17 +55,38 @@ async fn handler_home_page(
                 tracing::error!("render_index panicked in spawn_blocking: {e}");
                 String::new()
             });
-        let mut res = (
-            [
-                (header::CACHE_CONTROL, "no-cache"),
-                (
-                    header::LINK,
+        // G-30：debug 模式也提供内容 ETag，支持 If-None-Match 条件请求。
+        let etag = format!("\"{}\"", crate::secrets::sha256_hex(html.as_bytes()));
+        if let Some(inm) = req.headers().get(header::IF_NONE_MATCH)
+            && let Ok(inm) = inm.to_str()
+            && inm == etag
+        {
+            let mut res = Response::new(axum::body::Body::empty());
+            *res.status_mut() = StatusCode::NOT_MODIFIED;
+            res.headers_mut().insert(
+                header::ETAG,
+                HeaderValue::from_str(&etag).unwrap_or(HeaderValue::from_static("\"\"")),
+            );
+            res.headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            res.headers_mut()
+                .insert(header::VARY, HeaderValue::from_static("Accept"));
+            return res;
+        }
+
+        let mut res = ([(header::CACHE_CONTROL, "no-cache")], Html(html)).into_response();
+        res.headers_mut().insert(
+            header::ETAG,
+            HeaderValue::from_str(&etag).unwrap_or(HeaderValue::from_static("\"\"")),
+        );
+        if state.markdown_config.enable {
+            res.headers_mut().insert(
+                header::LINK,
+                HeaderValue::from_static(
                     "</?format=markdown>; rel=\"alternate\"; type=\"text/markdown\"",
                 ),
-            ],
-            Html(html),
-        )
-            .into_response();
+            );
+        }
         res.headers_mut()
             .insert(header::VARY, HeaderValue::from_static("Accept"));
         return res;

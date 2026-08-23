@@ -270,6 +270,49 @@ async fn handle_note_detail(
     if let Some(filename) = filename {
         let file_path = format!("notes/{}", filename);
         if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
+            // G-30：为笔记详情页提供 Last-Modified 校验器，支持 If-Modified-Since 304。
+            let modified = tokio::fs::metadata(&file_path)
+                .await
+                .and_then(|m| m.modified())
+                .ok();
+            let last_modified = modified.map(crate::utils::fmt_http_date);
+            let ims = req
+                .headers()
+                .get(header::IF_MODIFIED_SINCE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(crate::utils::parse_http_date);
+            if let (Some(ims), Some(modified)) = (ims, modified) {
+                let ims_secs = ims
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let modified_secs = modified
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                if ims_secs < modified_secs {
+                    // 不满足 304 条件，继续走正常渲染流程
+                } else {
+                    let mut res = Response::new(axum::body::Body::empty());
+                    *res.status_mut() = StatusCode::NOT_MODIFIED;
+                    if let Some(lm) = &last_modified {
+                        res.headers_mut().insert(
+                            header::LAST_MODIFIED,
+                            HeaderValue::from_str(lm).unwrap_or(HeaderValue::from_static(
+                                "Thu, 01 Jan 1970 00:00:00 GMT",
+                            )),
+                        );
+                    }
+                    res.headers_mut()
+                        .insert(header::VARY, HeaderValue::from_static("Accept"));
+                    res.headers_mut().insert(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),
+                    );
+                    return res;
+                }
+            }
+
             if wants_markdown {
                 // B33：剥离 frontmatter，只返回笔记正文，不泄露 updated_at 等元数据。
                 let markdown_body = crate::note_loader::parse_note(&content)
@@ -286,6 +329,13 @@ async fn handle_note_detail(
                 );
                 res.headers_mut()
                     .insert(header::VARY, HeaderValue::from_static("Accept"));
+                if let Some(lm) = &last_modified {
+                    res.headers_mut().insert(
+                        header::LAST_MODIFIED,
+                        HeaderValue::from_str(lm)
+                            .unwrap_or(HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT")),
+                    );
+                }
                 return res;
             }
 
@@ -399,6 +449,13 @@ async fn handle_note_detail(
                     res.headers_mut().insert(
                         header::CACHE_CONTROL,
                         HeaderValue::from_static("public, max-age=300"),
+                    );
+                }
+                if let Some(lm) = &last_modified {
+                    res.headers_mut().insert(
+                        header::LAST_MODIFIED,
+                        HeaderValue::from_str(lm)
+                            .unwrap_or(HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT")),
                     );
                 }
                 res.headers_mut()

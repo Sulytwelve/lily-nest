@@ -112,6 +112,10 @@ pub fn router(assets_config: Arc<AssetsConfig>) -> Router {
         ));
 
     let images_router = Router::new()
+        .route(
+            "/images/notes",
+            get(|| async { axum::response::Redirect::temporary("/images/notes/") }),
+        )
         .nest_service("/images", ServeDir::new("./static/images"))
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,

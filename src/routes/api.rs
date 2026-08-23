@@ -110,8 +110,13 @@ async fn admin_setup_status(State(state): State<Arc<AppState>>) -> Response {
 /// POST /api/v1/admin/setup — 使用一次性 Setup Code 完成首次密码初始化。
 async fn admin_setup(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<AdminSetupRequest>,
+    payload: Result<Json<AdminSetupRequest>, axum::extract::rejection::JsonRejection>,
 ) -> Response {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid JSON body").into_response(),
+    };
+
     if state
         .auth_secrets
         .read()
@@ -173,8 +178,13 @@ async fn admin_setup(
 async fn change_admin_password(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(payload): Json<AdminPasswordRequest>,
+    payload: Result<Json<AdminPasswordRequest>, axum::extract::rejection::JsonRejection>,
 ) -> Response {
+    let Json(payload) = match payload {
+        Ok(payload) => payload,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid JSON body").into_response(),
+    };
+
     let auth_secrets = state.auth_secrets.read().await;
     let Some(password_hash) = auth_secrets.admin_password_hash.clone() else {
         return (

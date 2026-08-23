@@ -29,9 +29,11 @@ allow_origins = []
 # 仅当 TCP 对端是这些 IP（或 loopback，如本机 cloudflared）时才信任
 # cf-connecting-ip / x-forwarded-* 等代理头；留空 = 只信 loopback。
 trusted_proxy_ips = []
-admin_password = "CHANGE_YOUR_PASSWORD"
-admin_security_answers = ["default1", "default2", "default3"]
-admin_security_questions = ["default1", "default2", "default3"]
+# 管理员密码与密保答案已迁移到 secrets.toml（哈希加盐），不要在此处明文配置。
+# 首次初始化请运行：lily-nest set-password
+# admin_password = "CHANGE_YOUR_PASSWORD"
+# admin_security_answers = ["default1", "default2", "default3"]
+# admin_security_questions = ["default1", "default2", "default3"]
 auth_ext_secq = false
 auth_ext_cftrace = false
 cftrace_url = "example.com"
