@@ -62,18 +62,17 @@ pub fn build_cors_layer(security_config: &SecurityConfig) -> CorsLayer {
 ///
 /// 固定比较 256 个字节，两个方向都用不同的填充字节，并混入长度差异，
 /// 避免「长度不等时提前返回」造成的长度侧信道。
-fn constant_time_eq(a: &str, b: &str) -> bool {
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     const CMP_LEN: usize = 256;
-    const PAD_A: u8 = 0xA5;
-    const PAD_B: u8 = 0x5A;
+    const PAD: u8 = 0x00;
 
     let a_bytes = a.as_bytes();
     let b_bytes = b.as_bytes();
     let mut diff = (a_bytes.len() ^ b_bytes.len()) as u16;
 
     for i in 0..CMP_LEN {
-        let x = a_bytes.get(i).copied().unwrap_or(PAD_A);
-        let y = b_bytes.get(i).copied().unwrap_or(PAD_B);
+        let x = a_bytes.get(i).copied().unwrap_or(PAD);
+        let y = b_bytes.get(i).copied().unwrap_or(PAD);
         diff |= (x ^ y) as u16;
     }
 
@@ -359,8 +358,11 @@ pub async fn handle_admin_login(
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid JSON").into_response(),
     };
 
-    let actual_password = security_config.admin_password.clone();
-    let actual_answers = security_config.admin_security_answers.clone();
+    let auth_secrets = state.auth_secrets.read().await;
+    let password_hash = auth_secrets.admin_password_hash.clone();
+    let answer_hashes = auth_secrets.admin_security_answer_hashes.clone();
+    drop(auth_secrets);
+
     let auth_ext_secq = security_config.auth_ext_secq.unwrap_or(false);
     let auth_ext_cftrace = security_config.auth_ext_cftrace.unwrap_or(false);
     let allowed_locs = security_config
@@ -373,21 +375,19 @@ pub async fn handle_admin_login(
         .unwrap_or(28800)
         .clamp(60, 86400);
 
-    // 1. 验证密码
-    let password_ok = match &actual_password {
+    // 1. 验证密码（使用运行时 AuthSecrets 中的加盐哈希）
+    let password_ok = match password_hash.as_deref() {
         None => {
             error!(
                 "[Security] Admin login attempt rejected: Admin password not configured on server."
             );
-            false
+            return (
+                StatusCode::UNAUTHORIZED,
+                "Admin password is not configured. Run lily-nest set-password.",
+            )
+                .into_response();
         }
-        Some(a) if a.is_empty() || a == "CHANGE_YOUR_PASSWORD" => {
-            error!(
-                "[Security] Admin login attempt rejected: The default placeholder password ('CHANGE_YOUR_PASSWORD') is in use. Please change your admin_password in config.toml!"
-            );
-            false
-        }
-        Some(a) => constant_time_eq(&payload.password, a),
+        Some(hash) => crate::secrets::verify_secret(&payload.password, hash),
     };
 
     if !password_ok {
@@ -397,13 +397,6 @@ pub async fn handle_admin_login(
 
     // 2. 验证安全问题（可选）
     if auth_ext_secq {
-        let answers = match actual_answers.as_ref() {
-            Some(a) => a,
-            None => {
-                error!("[Security] auth_ext_secq enabled but no answers configured");
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
-            }
-        };
         let questions = match security_config.admin_security_questions.as_ref() {
             Some(q) => q,
             None => {
@@ -411,29 +404,26 @@ pub async fn handle_admin_login(
                 return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
             }
         };
-        if answers.len() != questions.len() {
+        if answer_hashes.is_empty() || answer_hashes.len() != questions.len() {
             error!(
-                "[Security] auth_ext_secq enabled but answers ({}) and questions ({}) count mismatch",
-                answers.len(),
+                "[Security] auth_ext_secq enabled but answer hashes ({}) and questions ({}) count mismatch",
+                answer_hashes.len(),
                 questions.len()
             );
             return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
         }
-        if answers
+        if questions
             .iter()
-            .any(|a| PLACEHOLDER_ANSWERS.contains(&a.as_str()))
-            || questions
-                .iter()
-                .any(|q| PLACEHOLDER_ANSWERS.contains(&q.as_str()))
+            .any(|q| PLACEHOLDER_ANSWERS.contains(&q.as_str()))
         {
             error!(
-                "[Security] auth_ext_secq enabled but placeholder/default security answers/questions are in use"
+                "[Security] auth_ext_secq enabled but placeholder/default security questions are in use"
             );
             return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
         }
         match (payload.question_index, &payload.answer) {
-            (Some(idx), Some(ans)) if idx < answers.len() => {
-                if !constant_time_eq(&answers[idx], ans) {
+            (Some(idx), Some(ans)) if idx < answer_hashes.len() => {
+                if !crate::secrets::verify_secret(ans, &answer_hashes[idx]) {
                     warn!(
                         "Admin login failed: wrong security answer (idx={}). IP: {}",
                         idx, client_ip

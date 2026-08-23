@@ -6,6 +6,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const authDialog = document.getElementById('auth-dialog');
     const passwordInput = document.getElementById('password-input');
     const loginConfirmBtn = document.getElementById('login-confirm-btn');
+    const setupDialog = document.getElementById('setup-dialog');
+    const setupCodeInput = document.getElementById('setup-code-input');
+    const setupPasswordInput = document.getElementById('setup-password-input');
+    const setupConfirmInput = document.getElementById('setup-confirm-input');
+    const setupConfirmBtn = document.getElementById('setup-confirm-btn');
+    const setupStatusText = document.getElementById('setup-status-text');
     const currentFilenameDisplay = document.getElementById('current-filename');
     const statusText = document.getElementById('status-text');
     const logoutBtn = document.getElementById('logout-btn');
@@ -38,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let rawCfTrace = '';
     let authExtSecqEnabled = false;
     let authExtCftraceEnabled = false;
+    let setupRequired = false;
 
     // 被限流时的时间戳，此时间之前不再发请求
     let rateLimitedUntil = 0;
@@ -58,6 +65,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function clearStatus() {
         statusText.innerText = '';
+    }
+
+    function setSetupStatus(msg, isError = false) {
+        if (!setupStatusText) return;
+        setupStatusText.innerText = msg;
+        setupStatusText.style.color = isError
+            ? 'var(--md-sys-color-error)'
+            : 'var(--md-sys-color-on-surface-variant)';
     }
 
     function isTokenValid() {
@@ -94,6 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
         authExtSecqEnabled = config.auth_ext_secq;
         authExtCftraceEnabled = config.auth_ext_cftrace;
         questionCount = config.question_count || 0;
+        setupRequired = config.setup_required === true;
         if (authExtSecqEnabled) {
             securityQuestionContainer.innerHTML = '';
             const label = document.createElement('p');
@@ -138,6 +154,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function showAuthDialog() {
+        if (setupRequired) {
+            setupDialog.show();
+            return;
+        }
         if (authExtSecqEnabled) {
             try {
                 await refreshQuestion();
@@ -194,7 +214,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (response.status === 401) {
-            updateStatus('Authentication failed. Check password/answer.', true);
+            let message = 'Authentication failed. Check password/answer.';
+            try {
+                const text = await response.text();
+                if (text && text.includes('not configured')) {
+                    message = '管理员未初始化，请运行 set-password 或使用 Setup Code 初始化。';
+                }
+            } catch (e) {
+                // 保留默认提示
+            }
+            updateStatus(message, true);
             throw new Error('Unauthorized');
         }
 
@@ -290,6 +319,68 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Enter') loginConfirmBtn.click();
     });
 
+    setupConfirmBtn.addEventListener('click', async () => {
+        if (setupConfirmBtn.disabled) return;
+
+        const code = setupCodeInput.value.trim();
+        const password = setupPasswordInput.value;
+        const confirm = setupConfirmInput.value;
+
+        if (!code || !password) {
+            setSetupStatus('请填写 Setup Code 和新密码', true);
+            return;
+        }
+        if (password.length < 8) {
+            setSetupStatus('新密码至少 8 个字符', true);
+            return;
+        }
+        if (password !== confirm) {
+            setSetupStatus('两次输入的密码不一致', true);
+            return;
+        }
+
+        setupConfirmBtn.disabled = true;
+        setSetupStatus('正在初始化...');
+        try {
+            const res = await fetchWithTimeout('/api/v1/admin/setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ setup_code: code, password }),
+            });
+
+            if (res.status === 204) {
+                window.location.reload();
+                return;
+            }
+            if (res.status === 409) {
+                setSetupStatus('管理员已初始化，正在刷新...', true);
+                setTimeout(() => window.location.reload(), 1000);
+                return;
+            }
+            if (res.status === 403) {
+                setSetupStatus('Setup Code 错误或已过期', true);
+            } else if (res.status === 400) {
+                setSetupStatus('密码至少 8 个字符', true);
+            } else {
+                setSetupStatus('初始化失败，请稍后重试', true);
+            }
+        } catch (e) {
+            setSetupStatus('服务器无响应', true);
+        } finally {
+            setupConfirmBtn.disabled = false;
+        }
+    });
+
+    setupCodeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') setupConfirmBtn.click();
+    });
+    setupPasswordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') setupConfirmBtn.click();
+    });
+    setupConfirmInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') setupConfirmBtn.click();
+    });
+
     async function loadConfigs() {
         try {
             updateStatus('Loading files...');
@@ -378,7 +469,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Initial load
-    if (isTokenValid()) {
+    if (setupRequired) {
+        clearToken();
+        setTimeout(() => setupDialog.show(), 100);
+    } else if (isTokenValid()) {
         loadConfigs();
     } else {
         clearToken();

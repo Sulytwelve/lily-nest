@@ -24,8 +24,25 @@ fn set_owner_only_permissions(path: &std::path::Path) {
 #[cfg(not(unix))]
 fn set_owner_only_permissions(_path: &std::path::Path) {}
 
+fn random_setup_code() -> String {
+    let mut bytes = [0u8; 4];
+    rand::rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 pub async fn build_app(assets_config: AssetsConfig) -> Router {
     let security_config = load_security_config();
+    let auth_secrets = crate::secrets::load_auth_secrets(&security_config);
+    let setup_code = if auth_secrets.admin_password_hash.is_none() {
+        let code = random_setup_code();
+        tracing::warn!(
+            "管理员未初始化。请运行 lily-nest set-password 或访问 /admin 输入 Setup Code: {}（10 分钟内有效）",
+            code
+        );
+        Some((code, std::time::Instant::now()))
+    } else {
+        None
+    };
     let assets_config = Arc::new(assets_config);
     let markdown_config = crate::config::load_markdown_config();
 
@@ -91,6 +108,8 @@ pub async fn build_app(assets_config: AssetsConfig) -> Router {
             assets_config.html_cache_seconds,
         )),
         security_config: Arc::new(security_config),
+        auth_secrets: RwLock::new(auth_secrets),
+        setup_code: Mutex::new(setup_code),
         assets_config: assets_config.clone(),
         markdown_config: Arc::new(markdown_config),
         cloudflare_config: Arc::new(crate::config::load_cloudflare_config()),

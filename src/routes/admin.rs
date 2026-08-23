@@ -35,6 +35,13 @@ async fn admin_page_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
         state.security_config.clone()
     };
 
+    let setup_required = state
+        .auth_secrets
+        .read()
+        .await
+        .admin_password_hash
+        .is_none();
+
     let auth_config = crate::model::AdminAuthPageConfig {
         auth_ext_secq: security_config.auth_ext_secq.unwrap_or(false),
         auth_ext_cftrace: security_config.auth_ext_cftrace.unwrap_or(false),
@@ -43,6 +50,7 @@ async fn admin_page_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
             .as_ref()
             .map(|questions| questions.len())
             .unwrap_or(0),
+        setup_required,
     };
 
     let auth_config_str = serde_json::to_string(&auth_config)

@@ -139,6 +139,12 @@ pub struct TlsConfig {
     pub key_path: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AuthSecrets {
+    pub admin_password_hash: Option<String>,
+    pub admin_security_answer_hashes: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SecurityConfig {
     pub allow_origins: Vec<String>,
@@ -271,6 +277,7 @@ pub struct AdminAuthPageConfig {
     pub auth_ext_secq: bool,
     pub auth_ext_cftrace: bool,
     pub question_count: usize,
+    pub setup_required: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

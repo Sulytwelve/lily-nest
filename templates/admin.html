@@ -121,5 +121,20 @@
             <md-text-button id="login-confirm-btn">Login</md-text-button>
         </div>
     </md-dialog>
+
+    <!-- First-time Setup Dialog -->
+    <md-dialog id="setup-dialog">
+        <div slot="headline">管理员初始化</div>
+        <div slot="content">
+            <p>请输入启动日志中的 Setup Code，并设置新的管理员密码（至少 8 个字符）。</p>
+            <md-outlined-text-field id="setup-code-input" label="Setup Code" type="password" style="margin-bottom: 16px; width: 100%;"></md-outlined-text-field>
+            <md-outlined-text-field id="setup-password-input" label="New Password" type="password" style="margin-bottom: 16px; width: 100%;"></md-outlined-text-field>
+            <md-outlined-text-field id="setup-confirm-input" label="Confirm Password" type="password" style="margin-bottom: 16px; width: 100%;"></md-outlined-text-field>
+            <div id="setup-status-text" class="status-info"></div>
+        </div>
+        <div slot="actions">
+            <md-text-button id="setup-confirm-btn">Initialize</md-text-button>
+        </div>
+    </md-dialog>
 </body>
 </html>

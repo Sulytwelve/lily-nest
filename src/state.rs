@@ -1,4 +1,4 @@
-use crate::model::{AssetsConfig, MarkdownConfig, NoteSummary, SecurityConfig};
+use crate::model::{AssetsConfig, AuthSecrets, MarkdownConfig, NoteSummary, SecurityConfig};
 use axum::http::HeaderValue;
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -99,6 +99,10 @@ impl RateLimitTable {
 pub struct AppState {
     pub html_cache: RwLock<HtmlCache>,
     pub security_config: Arc<SecurityConfig>,
+    /// 认证秘密（密码/密保答案哈希）运行时状态；Web 初始化与在线改密会更新它。
+    pub auth_secrets: RwLock<AuthSecrets>,
+    /// 首次 Web 初始化的一次性 setup code，10 分钟有效。
+    pub setup_code: Mutex<Option<(String, Instant)>>,
     pub assets_config: Arc<AssetsConfig>,
     pub markdown_config: Arc<MarkdownConfig>,
     pub cloudflare_config: Arc<crate::model::CloudflareConfig>,

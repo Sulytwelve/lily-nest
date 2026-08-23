@@ -6,6 +6,7 @@ mod model;
 pub mod note_loader;
 pub mod render;
 mod routes;
+mod secrets;
 pub mod state;
 pub mod utils;
 
@@ -26,6 +27,12 @@ async fn main() {
         .with(fmt::layer())
         .with(env_filter)
         .init();
+
+    // 子命令：set-password —— 初始化/修改管理员密码（不启动服务器）
+    if std::env::args().nth(1).as_deref() == Some("set-password") {
+        handle_set_password_command();
+        std::process::exit(0);
+    }
 
     // 预压缩资源文件
     let assets_config = config::load_assets_config();
@@ -96,4 +103,65 @@ async fn main() {
             .await
             .expect("Server error");
     }
+}
+
+/// `lily-nest set-password`：初始化或修改管理员密码并写入 secrets.toml。
+fn handle_set_password_command() {
+    let args: Vec<String> = std::env::args().collect();
+    let generate = args.iter().any(|arg| arg == "--generate");
+
+    let password = if generate {
+        let password = generate_random_password(16);
+        println!("Generated admin password: {}（请立即保存）", password);
+        password
+    } else {
+        let password = match rpassword::prompt_password("New admin password: ") {
+            Ok(value) => value,
+            Err(e) => {
+                eprintln!("读取密码失败: {}", e);
+                std::process::exit(1);
+            }
+        };
+        let confirm = match rpassword::prompt_password("Confirm password: ") {
+            Ok(value) => value,
+            Err(e) => {
+                eprintln!("读取确认密码失败: {}", e);
+                std::process::exit(1);
+            }
+        };
+        if password != confirm {
+            eprintln!("两次输入的密码不一致");
+            std::process::exit(1);
+        }
+        password
+    };
+
+    if password.chars().count() < 8 {
+        eprintln!("密码至少 8 个字符");
+        std::process::exit(1);
+    }
+
+    let security_config = config::load_security_config();
+    let mut secrets = secrets::load_auth_secrets(&security_config);
+    secrets.admin_password_hash = Some(secrets::hash_secret(&password));
+
+    if let Err(e) = secrets::save_auth_secrets(&secrets) {
+        eprintln!("写入 secrets.toml 失败: {}", e);
+        std::process::exit(1);
+    }
+    println!("管理员密码已写入 secrets.toml（已哈希加盐）");
+    std::process::exit(0);
+}
+
+fn generate_random_password(len: usize) -> String {
+    use rand::RngExt;
+
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let mut rng = rand::rng();
+    (0..len)
+        .map(|_| {
+            let idx = rng.random_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
 }
