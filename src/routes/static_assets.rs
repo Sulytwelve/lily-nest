@@ -1,3 +1,4 @@
+use crate::model::AssetsConfig;
 use axum::{
     Router,
     extract::Request,
@@ -5,13 +6,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use tower_http::{
-    services::ServeDir,
-    set_header::SetResponseHeaderLayer,
-};
+use std::sync::Arc;
+use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
-pub fn router() -> Router {
-    let assets_config = crate::config::load_assets_config();
+pub fn router(assets_config: Arc<AssetsConfig>) -> Router {
     let mut css_dir = ServeDir::new("./static/css");
     let mut css_vendor = ServeDir::new("./static/css/vendor");
     let mut js_dir = ServeDir::new("./static/js");
@@ -20,17 +18,66 @@ pub fn router() -> Router {
     let mut fonts_vendor = ServeDir::new("./static/fonts/vendor");
 
     if assets_config.precompress {
-        css_dir = css_dir.precompressed_zstd().precompressed_br().precompressed_gzip();
-        css_vendor = css_vendor.precompressed_zstd().precompressed_br().precompressed_gzip();
-        js_dir = js_dir.precompressed_zstd().precompressed_br().precompressed_gzip();
-        js_vendor = js_vendor.precompressed_zstd().precompressed_br().precompressed_gzip();
-        fonts_dir = fonts_dir.precompressed_zstd().precompressed_br().precompressed_gzip();
-        fonts_vendor = fonts_vendor.precompressed_zstd().precompressed_br().precompressed_gzip();
+        css_dir = css_dir
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        css_vendor = css_vendor
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        js_dir = js_dir
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        js_vendor = js_vendor
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        fonts_dir = fonts_dir
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
+        fonts_vendor = fonts_vendor
+            .precompressed_zstd()
+            .precompressed_br()
+            .precompressed_gzip();
     }
 
     let css_service = css_dir.fallback(css_vendor);
     let js_service = js_dir.fallback(js_vendor);
     let fonts_service = fonts_dir.fallback(fonts_vendor);
+
+    let ac_robots = assets_config.clone();
+    let serve_robots = move |req: Request| {
+        let ac = ac_robots.clone();
+        async move { serve_robots_inner(ac, req).await }
+    };
+    let ac_bing = assets_config.clone();
+    let serve_bing_site_auth = move |req: Request| {
+        let ac = ac_bing.clone();
+        async move { serve_bing_site_auth_inner(ac, req).await }
+    };
+    let ac_sitemap = assets_config.clone();
+    let serve_sitemap = move |req: Request| {
+        let ac = ac_sitemap.clone();
+        async move { serve_sitemap_inner(ac, req).await }
+    };
+    let ac_favicon = assets_config.clone();
+    let serve_favicon = move |req: Request| {
+        let ac = ac_favicon.clone();
+        async move { serve_favicon_inner(ac, req).await }
+    };
+    let ac_security = assets_config.clone();
+    let serve_security_txt = move |req: Request| {
+        let ac = ac_security.clone();
+        async move { serve_security_txt_inner(ac, req).await }
+    };
+    let ac_baidu = assets_config.clone();
+    let serve_baidu_verify = move |path: axum::extract::Path<String>, req: Request| {
+        let ac = ac_baidu.clone();
+        async move { serve_baidu_verify_inner(ac, path, req).await }
+    };
 
     let root_files = Router::new()
         .route("/robots.txt", get(serve_robots))
@@ -65,6 +112,10 @@ pub fn router() -> Router {
         ));
 
     let images_router = Router::new()
+        .route(
+            "/images/notes",
+            get(|| async { axum::response::Redirect::temporary("/images/notes/") }),
+        )
         .nest_service("/images", ServeDir::new("./static/images"))
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
@@ -111,17 +162,22 @@ async fn serve_static_file(
     let cc_val = HeaderValue::try_from(cache_control)
         .unwrap_or_else(|_| HeaderValue::from_static("public, max-age=3600"));
 
-    if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE) {
-        if let Some(ims_time) = ims.to_str().ok().and_then(crate::utils::parse_http_date) {
-            let modified_secs = modified.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-            let ims_secs = ims_time.duration_since(std::time::SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-            if modified_secs <= ims_secs {
-                let mut res = Response::new(axum::body::Body::empty());
-                *res.status_mut() = StatusCode::NOT_MODIFIED;
-                res.headers_mut()
-                    .insert(header::CACHE_CONTROL, cc_val);
-                return res;
-            }
+    if let Some(ims) = req.headers().get(header::IF_MODIFIED_SINCE)
+        && let Some(ims_time) = ims.to_str().ok().and_then(crate::utils::parse_http_date)
+    {
+        let modified_secs = modified
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let ims_secs = ims_time
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if modified_secs <= ims_secs {
+            let mut res = Response::new(axum::body::Body::empty());
+            *res.status_mut() = StatusCode::NOT_MODIFIED;
+            res.headers_mut().insert(header::CACHE_CONTROL, cc_val);
+            return res;
         }
     }
 
@@ -139,36 +195,32 @@ async fn serve_static_file(
         HeaderValue::from_str(&last_modified)
             .unwrap_or(HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT")),
     );
-    res.headers_mut()
-        .insert(header::CACHE_CONTROL, cc_val);
+    res.headers_mut().insert(header::CACHE_CONTROL, cc_val);
     res
 }
 
-async fn serve_robots(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_robots_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file("./static/robots.txt", "text/plain", &cc, req).await
 }
 
-async fn serve_bing_site_auth(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_bing_site_auth_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file("./static/BingSiteAuth.xml", "application/xml", &cc, req).await
 }
 
-async fn serve_sitemap(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_sitemap_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file("./static/sitemap.xml", "application/xml", &cc, req).await
 }
 
-async fn serve_favicon(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_favicon_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file("./static/favicon.ico", "image/x-icon", &cc, req).await
 }
 
-async fn serve_baidu_verify(
+async fn serve_baidu_verify_inner(
+    assets_config: Arc<AssetsConfig>,
     axum::extract::Path(baidu_verify_codeva): axum::extract::Path<String>,
     req: Request,
 ) -> Response {
@@ -177,26 +229,29 @@ async fn serve_baidu_verify(
         let code = baidu_verify_codeva
             .trim_start_matches("baidu_")
             .trim_end_matches(".html");
-        if code.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        if code
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
             let path = format!("./static/{}", baidu_verify_codeva);
-            let assets_config = crate::config::load_assets_config();
             let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
             serve_static_file(&path, "text/html; charset=utf-8", &cc, req).await
         } else {
-            StatusCode::BAD_REQUEST.into_response()
+            // 兜底路由：对未知/畸形路径一律表现为 404，避免向扫描器暴露 400 语义（B30）
+            StatusCode::NOT_FOUND.into_response()
         }
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
 }
 
-async fn serve_security_txt(req: Request) -> Response {
-    let assets_config = crate::config::load_assets_config();
+async fn serve_security_txt_inner(assets_config: Arc<AssetsConfig>, req: Request) -> Response {
     let cc = format!("public, max-age={}", assets_config.other_cache_seconds);
     serve_static_file(
         "./static/.well-known/security.txt",
         "text/plain; charset=utf-8",
         &cc,
         req,
-    ).await
+    )
+    .await
 }

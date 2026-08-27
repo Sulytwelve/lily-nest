@@ -7,16 +7,25 @@
 /CLAUDE.md
 /GEMINI.md
 /static/images/*
+# 笔记粘贴上传的图片（用户内容，不入库；由 /images/notes/... 提供访问）
+/static/images/notes/
 /static/Bing*
 /static/favicon.ico
 /static/robots.txt
 /static/sitemap.xml
 /static/fonts/vendor/
 /certs/*
-!certs/example*
+# 例外的 example.com.pem/key 是项目自带的不可用自签测试证书，仅供 clone 后本地测试；
+# 正式部署请使用自己的证书，或使用 force-http 特性。
+!certs/example.com.pem
+!certs/example.com.key
 
 /static/**/*.br
 /static/**/*.gz
 /static/**/*.zst
 /.jwt_secret
 /.agent*
+# 认证秘密文件（哈希加盐，仍属敏感信息，不入库）
+/secrets.toml
+# 本地 wrk 基准输出（bench/run-bench.ps1 里嵌有过期 token，属本地调试产物，不入库）
+/bench/

@@ -17,8 +17,7 @@ pub struct HomeProfile {
 
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
-    pub status: &'static str,  // "ok"
-    pub version: &'static str, // env!("CARGO_PKG_VERSION")
+    pub status: &'static str, // "ok"
 }
 
 impl Default for HomeProfile {
@@ -38,10 +37,7 @@ impl Default for HomeProfile {
 
 impl Default for HealthResponse {
     fn default() -> Self {
-        Self {
-            status: "ok",
-            version: env!("CARGO_PKG_VERSION"),
-        }
+        Self { status: "ok" }
     }
 }
 
@@ -122,7 +118,6 @@ impl Default for ChangelogList {
     }
 }
 
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerConfig {
     pub http_port: u16,
@@ -144,6 +139,12 @@ pub struct TlsConfig {
     pub key_path: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AuthSecrets {
+    pub admin_password_hash: Option<String>,
+    pub admin_security_answer_hashes: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SecurityConfig {
     pub allow_origins: Vec<String>,
@@ -157,12 +158,13 @@ pub struct SecurityConfig {
     pub cftrace_url: Option<String>,
     pub allowed_locs: Option<Vec<String>>,
     pub jwt_expiry_secs: Option<u64>,
+    pub trusted_proxy_ips: Option<Vec<String>>,
 }
 
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
-            allow_origins: vec!["*".into()],
+            allow_origins: Vec::new(),
             csp_policy: "default-src 'self'; script-src 'self'; \
                          style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
                          connect-src 'self' https://cloudflare.com https://*.cloudflare.com; font-src 'self'; object-src 'none'; \
@@ -185,6 +187,7 @@ impl Default for SecurityConfig {
             cftrace_url: Some("https://cloudflare.com/cdn-cgi/trace".to_string()),
             allowed_locs: Some(vec!["CN".to_string()]),
             jwt_expiry_secs: Some(28800),
+            trusted_proxy_ips: Some(vec![]),
         }
     }
 }
@@ -200,7 +203,6 @@ pub struct AssetsConfig {
     pub brotli_quality: u32,
     pub gzip_level: u32,
     pub html_cache_seconds: u32,
-    pub api_cache_seconds: u32,
     pub js_css_cache_seconds: u32,
     pub image_cache_seconds: u32,
     pub font_cache_seconds: u32,
@@ -228,12 +230,11 @@ impl Default for AssetsConfig {
                 "ttf".to_string(),
                 "otf".to_string(),
             ],
-            compression_types: vec!["br".to_string(), "gz".to_string(), "zst".to_string()],
+            compression_types: vec!["br".to_string()],
             zstd_level: 3,
-            brotli_quality: 4,
-            gzip_level: 8,
+            brotli_quality: 11,
+            gzip_level: 9,
             html_cache_seconds: 3600,
-            api_cache_seconds: 0,
             js_css_cache_seconds: 86400,
             image_cache_seconds: 86400,
             font_cache_seconds: 604800,
@@ -253,7 +254,6 @@ pub struct MarkdownConfig {
     pub enable: bool,
 }
 
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigFile {
     pub name: String,
@@ -272,6 +272,20 @@ pub struct AdminLoginRequest {
     pub cf_trace: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AdminAuthPageConfig {
+    pub auth_ext_secq: bool,
+    pub auth_ext_cftrace: bool,
+    pub question_count: usize,
+    pub setup_required: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AdminLoginQuestion {
+    pub question_index: usize,
+    pub question: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminLoginResponse {
     pub token: String,
@@ -283,10 +297,16 @@ pub struct AdminLoginResponse {
 /// 统一的 JWT 认证数据结构，支持显式角色与昵称
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthClaims {
-    pub sub: String,   // "admin" 或用户标识
-    pub name: String,  // 昵称/展示名字
-    pub role: String,  // "admin" 等角色标识
+    pub sub: String,  // "admin" 或用户标识
+    pub name: String, // 昵称/展示名字
+    pub role: String, // "admin" 等角色标识
     pub exp: u64,
+    /// 签发时间（B19）
+    #[serde(default)]
+    pub iat: Option<u64>,
+    /// JWT ID，登出后进入服务端吊销表（B19）
+    #[serde(default)]
+    pub jti: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -338,12 +358,12 @@ pub struct NoteFrontmatter {
     pub excerpt: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NoteSummary {
     pub meta: NoteFrontmatter,
     pub filename: String,
     #[serde(default, skip_serializing)]
-    pub content: String,
+    pub content: std::sync::Arc<str>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -352,6 +372,4 @@ pub struct AdminNoteSaveRequest {
     pub tags: Vec<String>,
     pub excerpt: Option<String>,
     pub content: String,
-    pub original_slug: Option<String>,
 }
-

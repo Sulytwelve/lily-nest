@@ -6,6 +6,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const authDialog = document.getElementById('auth-dialog');
     const passwordInput = document.getElementById('password-input');
     const loginConfirmBtn = document.getElementById('login-confirm-btn');
+    const setupDialog = document.getElementById('setup-dialog');
+    const setupCodeInput = document.getElementById('setup-code-input');
+    const setupPasswordInput = document.getElementById('setup-password-input');
+    const setupConfirmInput = document.getElementById('setup-confirm-input');
+    const setupConfirmBtn = document.getElementById('setup-confirm-btn');
+    const setupStatusText = document.getElementById('setup-status-text');
     const currentFilenameDisplay = document.getElementById('current-filename');
     const statusText = document.getElementById('status-text');
     const logoutBtn = document.getElementById('logout-btn');
@@ -14,7 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let securityAnswerInput = null;
     let securityQuestionLabel = null;
 
-    let securityQuestions = [];
+    let questionCount = 0;
 
     // Migrate old token keys to unified keys
     (function migrateTokens() {
@@ -38,10 +44,19 @@ document.addEventListener('DOMContentLoaded', () => {
     let rawCfTrace = '';
     let authExtSecqEnabled = false;
     let authExtCftraceEnabled = false;
-    let cftraceUrl = 'https://cloudflare.com/cdn-cgi/trace';
+    let setupRequired = false;
 
     // 被限流时的时间戳，此时间之前不再发请求
     let rateLimitedUntil = 0;
+
+    // 统一 fetch 封装：默认 15s 超时；调用方已提供 signal 时尊重原 signal
+    function fetchWithTimeout(url, options = {}, ms = 15000) {
+        const opts = { ...options };
+        if (!opts.signal) {
+            opts.signal = AbortSignal.timeout(ms);
+        }
+        return fetch(url, opts);
+    }
 
     function updateStatus(msg, isError = false) {
         statusText.innerText = msg;
@@ -50,6 +65,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function clearStatus() {
         statusText.innerText = '';
+    }
+
+    function setSetupStatus(msg, isError = false) {
+        if (!setupStatusText) return;
+        setupStatusText.innerText = msg;
+        setupStatusText.style.color = isError
+            ? 'var(--md-sys-color-error)'
+            : 'var(--md-sys-color-on-surface-variant)';
     }
 
     function isTokenValid() {
@@ -85,69 +108,69 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         authExtSecqEnabled = config.auth_ext_secq;
         authExtCftraceEnabled = config.auth_ext_cftrace;
-        if (config.security_questions) {
-            securityQuestions = config.security_questions;
-        }
-        if (config.cftrace_url && config.cftrace_url.trim() !== '') {
-            let url = config.cftrace_url.trim();
-            if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/')) {
-                cftraceUrl = url;
-            } else {
-                if (url === window.location.hostname || url === window.location.host) {
-                    cftraceUrl = '/cdn-cgi/trace';
-                } else {
-                    cftraceUrl = `https://${url}/cdn-cgi/trace`;
-                }
-            }
-        }
+        questionCount = config.question_count || 0;
+        setupRequired = config.setup_required === true;
         if (authExtSecqEnabled) {
-            securityQuestionContainer.innerHTML = `
-                <p id="security-question-label" class="md-typescale-body-medium" style="margin-bottom: 8px; color: var(--md-sys-color-primary);"></p>
-                <md-outlined-text-field id="security-answer-input" label="Security Answer" style="width: 100%;"></md-outlined-text-field>
-            `;
-            securityAnswerInput = document.getElementById('security-answer-input');
-            securityQuestionLabel = document.getElementById('security-question-label');
+            securityQuestionContainer.innerHTML = '';
+            const label = document.createElement('p');
+            label.id = 'security-question-label';
+            label.className = 'md-typescale-body-medium';
+            label.style.marginBottom = '8px';
+            label.style.color = 'var(--md-sys-color-primary)';
+            securityQuestionContainer.appendChild(label);
+
+            const input = document.createElement('md-outlined-text-field');
+            input.id = 'security-answer-input';
+            input.setAttribute('label', 'Security Answer');
+            input.style.width = '100%';
+            securityQuestionContainer.appendChild(input);
+
+            securityAnswerInput = input;
+            securityQuestionLabel = label;
             securityAnswerInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') loginConfirmBtn.click();
             });
         }
     })();
 
-    function pickRandomQuestion() {
-        if (!authExtSecqEnabled || !securityQuestions || securityQuestions.length === 0) return 0;
-        const index = Math.floor(Math.random() * securityQuestions.length);
-        if (securityQuestionLabel) {
-            securityQuestionLabel.innerText = `Security Question: ${securityQuestions[index]}`;
+    let tempQuestionIndex = 0;
+
+    async function refreshQuestion() {
+        try {
+            const res = await fetchWithTimeout('/api/v1/admin/login/question', { cache: 'no-store' });
+            if (!res.ok) {
+                updateStatus('Security question unavailable', true);
+                throw new Error('Security question unavailable');
+            }
+            const data = await res.json();
+            tempQuestionIndex = data.question_index;
+            if (securityQuestionLabel) {
+                securityQuestionLabel.innerText = `Security Question: ${data.question}`;
+            }
+        } catch (e) {
+            updateStatus('Security question unavailable', true);
+            throw e;
         }
-        return index;
     }
 
-    let tempQuestionIndex = 0;
+    async function showAuthDialog() {
+        if (setupRequired) {
+            setupDialog.show();
+            return;
+        }
+        if (authExtSecqEnabled) {
+            try {
+                await refreshQuestion();
+            } catch (e) {
+                // 取题失败仍打开对话框；提交时服务端会拒绝并提示
+            }
+        }
+        authDialog.show();
+    }
 
     async function fetchTrace() {
         try {
-            let url = cftraceUrl;
-            if (!cftraceUrl.startsWith('/')) {
-                let traceHost = cftraceUrl.trim().toLowerCase();
-                if (traceHost.startsWith('http://')) traceHost = traceHost.substring(7);
-                else if (traceHost.startsWith('https://')) traceHost = traceHost.substring(8);
-                traceHost = traceHost.split('/')[0];
-
-                let traceHostname = traceHost;
-                if (traceHost.startsWith('[')) {
-                    const idx = traceHost.indexOf(']');
-                    if (idx !== -1) traceHostname = traceHost.substring(0, idx + 1);
-                } else {
-                    traceHostname = traceHost.split(':')[0];
-                }
-
-                const currentHost = window.location.hostname.toLowerCase();
-                const normalize = dom => dom.startsWith('www.') ? dom.substring(4) : dom;
-                const useRelative = normalize(currentHost) === normalize(traceHostname);
-                url = useRelative ? '/cdn-cgi/trace' : (cftraceUrl.startsWith('http') ? cftraceUrl : `https://${cftraceUrl}`);
-            }
-
-            const res = await fetch(url);
+            const res = await fetchWithTimeout('/cdn-cgi/trace');
             if (res.ok) {
                 rawCfTrace = await res.text();
             }
@@ -174,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let response;
         try {
-            response = await fetch('/api/v1/admin/login', {
+            response = await fetchWithTimeout('/api/v1/admin/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -191,7 +214,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (response.status === 401) {
-            updateStatus('Authentication failed. Check password/answer.', true);
+            let message = 'Authentication failed. Check password/answer.';
+            try {
+                const text = await response.text();
+                if (text && text.includes('not configured')) {
+                    message = '管理员未初始化，请运行 set-password 或使用 Setup Code 初始化。';
+                }
+            } catch (e) {
+                // 保留默认提示
+            }
+            updateStatus(message, true);
             throw new Error('Unauthorized');
         }
 
@@ -215,8 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isTokenValid()) {
             // Token 过期或不存在，弹出登录框
             clearToken();
-            tempQuestionIndex = pickRandomQuestion();
-            authDialog.show();
+            await showAuthDialog();
             throw new Error('Unauthorized');
         }
 
@@ -227,9 +258,14 @@ document.addEventListener('DOMContentLoaded', () => {
             ...options.headers,
         };
 
+        const fetchOptions = { ...options, headers };
+        if (isGet && !('cache' in fetchOptions)) {
+            fetchOptions.cache = 'no-store';
+        }
+
         let response;
         try {
-            response = await fetch(url, { ...options, headers });
+            response = await fetchWithTimeout(url, fetchOptions);
         } catch (e) {
             updateStatus('Server not responding', true);
             throw e;
@@ -238,8 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (response.status === 401) {
             // Token 被服务端拒绝（如服务器重启后 secret 变更）
             clearToken();
-            tempQuestionIndex = pickRandomQuestion();
-            authDialog.show();
+            await showAuthDialog();
             throw new Error('Unauthorized');
         }
 
@@ -272,9 +307,8 @@ document.addEventListener('DOMContentLoaded', () => {
             await loadConfigs();
         } catch (e) {
             if (e.message === 'Unauthorized') {
-                // 已在 doLogin 里 updateStatus，重新打开对话框
-                tempQuestionIndex = pickRandomQuestion();
-                authDialog.show();
+                // 已在 doLogin 里 updateStatus，重新打开对话框并重新取题
+                await showAuthDialog();
             }
         } finally {
             loginConfirmBtn.disabled = false;
@@ -283,6 +317,68 @@ document.addEventListener('DOMContentLoaded', () => {
 
     passwordInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') loginConfirmBtn.click();
+    });
+
+    setupConfirmBtn.addEventListener('click', async () => {
+        if (setupConfirmBtn.disabled) return;
+
+        const code = setupCodeInput.value.trim();
+        const password = setupPasswordInput.value;
+        const confirm = setupConfirmInput.value;
+
+        if (!code || !password) {
+            setSetupStatus('请填写 Setup Code 和新密码', true);
+            return;
+        }
+        if (password.length < 8) {
+            setSetupStatus('新密码至少 8 个字符', true);
+            return;
+        }
+        if (password !== confirm) {
+            setSetupStatus('两次输入的密码不一致', true);
+            return;
+        }
+
+        setupConfirmBtn.disabled = true;
+        setSetupStatus('正在初始化...');
+        try {
+            const res = await fetchWithTimeout('/api/v1/admin/setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ setup_code: code, password }),
+            });
+
+            if (res.status === 204) {
+                window.location.reload();
+                return;
+            }
+            if (res.status === 409) {
+                setSetupStatus('管理员已初始化，正在刷新...', true);
+                setTimeout(() => window.location.reload(), 1000);
+                return;
+            }
+            if (res.status === 403) {
+                setSetupStatus('Setup Code 错误或已过期', true);
+            } else if (res.status === 400) {
+                setSetupStatus('密码至少 8 个字符', true);
+            } else {
+                setSetupStatus('初始化失败，请稍后重试', true);
+            }
+        } catch (e) {
+            setSetupStatus('服务器无响应', true);
+        } finally {
+            setupConfirmBtn.disabled = false;
+        }
+    });
+
+    setupCodeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') setupConfirmBtn.click();
+    });
+    setupPasswordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') setupConfirmBtn.click();
+    });
+    setupConfirmInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') setupConfirmBtn.click();
     });
 
     async function loadConfigs() {
@@ -296,7 +392,10 @@ document.addEventListener('DOMContentLoaded', () => {
             configs.forEach(cfg => {
                 const item = document.createElement('md-list-item');
                 item.type = 'button';
-                item.innerHTML = `<div slot="headline">${cfg.name}</div>`;
+                const div = document.createElement('div');
+                div.setAttribute('slot', 'headline');
+                div.textContent = cfg.name;
+                item.appendChild(div);
                 item.addEventListener('click', () => loadFile(cfg.name));
                 configList.appendChild(item);
             });
@@ -314,7 +413,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentFilenameDisplay.innerText = name;
         updateStatus(`Loading ${name}...`);
         try {
-            const res = await apiFetch(`/api/v1/admin/configs/${name}`);
+            const res = await apiFetch(`/api/v1/admin/configs/${encodeURIComponent(name)}`);
             if (res.ok) {
                 editor.value = await res.text();
                 saveBtn.disabled = false;
@@ -335,7 +434,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveBtn.disabled = true;
         updateStatus('Saving...');
         try {
-            const res = await apiFetch(`/api/v1/admin/configs/${currentFile}`, {
+            const res = await apiFetch(`/api/v1/admin/configs/${encodeURIComponent(currentFile)}`, {
                 method: 'POST',
                 body: JSON.stringify({ content: editor.value }),
             });
@@ -354,19 +453,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    logoutBtn.addEventListener('click', () => {
+    logoutBtn.addEventListener('click', async () => {
+        if (jwtToken) {
+            try {
+                await fetchWithTimeout('/api/v1/admin/logout', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${jwtToken}` },
+                });
+            } catch (e) {
+                console.warn('Admin: logout request failed', e);
+            }
+        }
         clearToken();
         window.location.reload();
     });
 
     // Initial load
-    if (isTokenValid()) {
+    if (setupRequired) {
+        clearToken();
+        setTimeout(() => setupDialog.show(), 100);
+    } else if (isTokenValid()) {
         loadConfigs();
     } else {
         clearToken();
         setTimeout(() => {
-            tempQuestionIndex = pickRandomQuestion();
-            authDialog.show();
+            if (authExtSecqEnabled) {
+                refreshQuestion().catch(() => {}).finally(() => authDialog.show());
+            } else {
+                authDialog.show();
+            }
         }, 100);
     }
 
@@ -429,10 +544,68 @@ document.addEventListener('DOMContentLoaded', () => {
     const editExcerpt = document.getElementById('editExcerpt');
     const editContent = document.getElementById('editContent');
     const editorTitleText = document.getElementById('editorTitleText');
+    const noteEditorStatus = document.getElementById('noteEditorStatus');
 
     let currentEditingSlug = null;
     let currentTags = [];
     let allAvailableTags = new Set();
+
+    function setNoteEditorStatus(msg, isError = false) {
+        if (!noteEditorStatus) return;
+        noteEditorStatus.textContent = msg;
+        noteEditorStatus.style.color = isError
+            ? 'var(--md-sys-color-error)'
+            : 'var(--md-sys-color-on-surface-variant)';
+    }
+
+    function insertAtCursor(textarea, text) {
+        const start = textarea.selectionStart ?? textarea.value.length;
+        const end = textarea.selectionEnd ?? textarea.value.length;
+        textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
+        textarea.selectionStart = textarea.selectionEnd = start + text.length;
+        textarea.focus();
+    }
+
+    async function uploadNoteImage(file) {
+        if (!isTokenValid()) {
+            clearToken();
+            await showAuthDialog();
+            throw new Error('Unauthorized');
+        }
+
+        const headers = { 'Authorization': `Bearer ${jwtToken}` };
+        if (file.type) headers['Content-Type'] = file.type;
+
+        let response;
+        try {
+            response = await fetchWithTimeout('/admin/notes/images', {
+                method: 'POST',
+                headers,
+                body: file,
+            }, 30000);
+        } catch (e) {
+            setNoteEditorStatus('图片上传失败：网络错误', true);
+            throw e;
+        }
+
+        if (response.status === 401) {
+            clearToken();
+            await showAuthDialog();
+            throw new Error('Unauthorized');
+        }
+
+        if (!response.ok) {
+            const msg = response.status === 413
+                ? '图片上传失败：超过 5MB 限制'
+                : '图片上传失败：仅支持 PNG / JPG / GIF / WebP';
+            setNoteEditorStatus(msg, true);
+            throw new Error(msg);
+        }
+
+        const data = await response.json();
+        setNoteEditorStatus('图片已上传：' + data.url);
+        return data;
+    }
 
     async function loadNotes() {
         try {
@@ -489,7 +662,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function deleteNote(slug) {
         if (!confirm(`确定要删除 ${slug} 吗？`)) return;
         try {
-            await apiFetch(`/admin/notes/${slug}`, { method: 'DELETE' });
+            await apiFetch(`/admin/notes/${encodeURIComponent(slug)}`, { method: 'DELETE' });
             loadNotes();
         } catch (e) {
             alert('删除出错');
@@ -508,7 +681,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (slug) {
             editorTitleText.textContent = '编辑梨记';
             try {
-                const res = await apiFetch(`/admin/notes/${slug}`);
+                const res = await apiFetch(`/admin/notes/${encodeURIComponent(slug)}`);
                 const data = await res.json();
                 editTitle.value = data.title || '';
                 currentTags = data.tags || [];
@@ -571,6 +744,33 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (editContent) {
+        editContent.addEventListener('paste', async (e) => {
+            const items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+
+            let imageFile = null;
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    imageFile = item.getAsFile();
+                    break;
+                }
+            }
+            if (!imageFile) return;
+
+            e.preventDefault();
+            setNoteEditorStatus('正在上传图片...');
+            try {
+                const data = await uploadNoteImage(imageFile);
+                const alt = (imageFile.name || 'image').replace(/\.[^.]+$/, '');
+                insertAtCursor(editContent, `![${alt}](${data.url})`);
+            } catch (err) {
+                console.warn('Admin: image paste failed', err);
+            }
+        });
+    }
+
     function closeEditor() {
         editorOverlay.classList.remove('active');
         document.body.style.overflow = '';
@@ -587,12 +787,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 title: editTitle.value,
                 tags: currentTags,
                 excerpt: editExcerpt.value.trim() ? editExcerpt.value.trim() : null,
-                content: editContent.value,
-                original_slug: currentEditingSlug
+                content: editContent.value
             };
             
             const method = currentEditingSlug ? 'PUT' : 'POST';
-            const url = currentEditingSlug ? `/admin/notes/${currentEditingSlug}` : '/admin/notes';
+            const url = currentEditingSlug ? `/admin/notes/${encodeURIComponent(currentEditingSlug)}` : '/admin/notes';
             
             try {
                 await apiFetch(url, {

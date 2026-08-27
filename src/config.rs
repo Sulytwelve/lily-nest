@@ -1,6 +1,6 @@
 use crate::model::{
     AboutList, AssetsConfig, ChangelogList, CloudflareConfig, HomeProfile, MarkdownConfig,
-    ProjectList, SecurityConfig, ServerConfig, SiteConfig, TlsConfig, NoteConfig,
+    NoteConfig, ProjectList, SecurityConfig, ServerConfig, SiteConfig, TlsConfig,
 };
 use serde::de::DeserializeOwned;
 use std::fs;
@@ -59,14 +59,22 @@ pub fn load_site_data() -> (HomeProfile, SiteConfig, NoteConfig) {
         Ok(c) => c,
         Err(e) => {
             error!("提示: 未找到 site.toml ({}), 使用内置默认配置", e);
-            return (HomeProfile::default(), SiteConfig::default(), NoteConfig::default());
+            return (
+                HomeProfile::default(),
+                SiteConfig::default(),
+                NoteConfig::default(),
+            );
         }
     };
     match toml::from_str::<SiteToml>(&content) {
         Ok(c) => (c.profile, c.site, c.note),
         Err(e) => {
             error!("解析 site.toml 失败: {}. 请检查格式是否正确。", e);
-            (HomeProfile::default(), SiteConfig::default(), NoteConfig::default())
+            (
+                HomeProfile::default(),
+                SiteConfig::default(),
+                NoteConfig::default(),
+            )
         }
     }
 }
@@ -118,13 +126,9 @@ pub fn load_markdown_config() -> MarkdownConfig {
 
 pub async fn get_editable_configs() -> Vec<String> {
     let mut editable = Vec::new();
-    if let Ok(mut entries) = tokio::fs::read_dir(".").await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            if let Some(name) = entry.file_name().to_str() {
-                if name.ends_with(".toml") && name != "config.toml" && name != "Cargo.toml" {
-                    editable.push(name.to_string());
-                }
-            }
+    for name in ["site.toml", "projects.toml", "about.toml", "changelog.toml"] {
+        if tokio::fs::try_exists(name).await.unwrap_or(false) {
+            editable.push(name.to_string());
         }
     }
     editable.push("sitemap.xml".to_string());

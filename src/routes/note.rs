@@ -1,15 +1,15 @@
+use crate::state::AppState;
 use axum::{
+    Router,
     extract::{Path, State},
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
-use std::sync::Arc;
-use crate::state::AppState;
 use bytes::Bytes;
-use pulldown_cmark::{html, Parser};
+use pulldown_cmark::{Parser, html};
 use serde::Deserialize;
+use std::sync::Arc;
 
 #[derive(Deserialize, Default)]
 struct NoteQuery {
@@ -19,16 +19,21 @@ struct NoteQuery {
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/note", get(handle_note_list))
-        .route("/note/", get(|| async { axum::response::Redirect::permanent("/note") }))
+        .route(
+            "/note/",
+            get(|| async { axum::response::Redirect::permanent("/note") }),
+        )
         .route("/note/{slug}", get(handle_note_detail))
         .with_state(state)
 }
 
-/// 开发模式：从磁盘重载索引
+/// 开发模式：从磁盘重载索引。
+/// B28：先在锁外完成全盘 IO，再短期持锁做指针替换，避免阻塞所有读请求。
 async fn reload_index_in_debug(state: &Arc<AppState>) {
     if cfg!(debug_assertions) {
+        let new_index = crate::note_loader::load_all_notes().await;
         let mut index = state.note_index.write().await;
-        *index = crate::note_loader::load_all_notes().await;
+        *index = new_index;
     }
 }
 
@@ -50,40 +55,63 @@ async fn handle_note_list(
 ) -> Response {
     reload_index_in_debug(&state).await;
 
-    let wants_markdown = query.format.as_deref() == Some("markdown") ||
-        req.headers().get(header::ACCEPT).and_then(|v| v.to_str().ok())
-        .map(|v| v.contains("text/markdown") || v.contains("text/x-markdown")).unwrap_or(false);
+    let wants_markdown = query.format.as_deref() == Some("markdown")
+        || req
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.contains("text/markdown") || v.contains("text/x-markdown"))
+            .unwrap_or(false);
 
     if wants_markdown {
         let (_, _, note_config) = crate::config::load_site_data();
         let notes = state.note_index.read().await;
-        
+
         let mut md = String::new();
         md.push_str(&format!("# {}\n\n", note_config.note_title));
         md.push_str(&format!("> {}\n\n---\n\n", note_config.meta_desc));
-        
+
         for note in notes.iter() {
             let display_date = format_date(&note.meta.date);
-            md.push_str(&format!("*   **[{}](/note/{})** — {}\n", note.meta.title, note.meta.slug, display_date));
+            md.push_str(&format!(
+                "*   **[{}](/note/{})** — {}\n",
+                note.meta.title, note.meta.slug, display_date
+            ));
             if let Some(excerpt) = &note.meta.excerpt {
                 let clean_excerpt = excerpt.replace('\n', " ");
                 md.push_str(&format!("    > {}\n", clean_excerpt));
             }
         }
-        
+
         let mut res = Response::new(axum::body::Body::from(md));
-        res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/markdown; charset=utf-8"));
-        res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache, no-store, must-revalidate"));
-        res.headers_mut().insert(header::VARY, HeaderValue::from_static("Accept"));
+        res.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/markdown; charset=utf-8"),
+        );
+        res.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),
+        );
+        res.headers_mut()
+            .insert(header::VARY, HeaderValue::from_static("Accept"));
         return res;
     }
 
-    if let Some(cached) = state.note_list_html_cache.read().await.clone() {
-        if !cfg!(debug_assertions) {
-            let mut res = Response::new(axum::body::Body::from(cached));
-            res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
-            return res;
-        }
+    if let Some(cached) = state.note_list_html_cache.read().await.clone()
+        && !cfg!(debug_assertions)
+    {
+        let mut res = Response::new(axum::body::Body::from(cached));
+        res.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
+        res.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=300"),
+        );
+        res.headers_mut()
+            .insert(header::VARY, HeaderValue::from_static("Accept"));
+        return res;
     }
 
     let notes = state.note_index.read().await;
@@ -97,8 +125,16 @@ async fn handle_note_list(
         let excerpt = crate::utils::html_escape(&note.meta.excerpt.clone().unwrap_or_default());
         let title = crate::utils::html_escape(&note.meta.title);
 
-        let tags_html = note.meta.tags.iter()
-            .map(|t| format!(r#"<span class="tag">#{}</span>"#, crate::utils::html_escape(t)))
+        let tags_html = note
+            .meta
+            .tags
+            .iter()
+            .map(|t| {
+                format!(
+                    r#"<span class="tag">#{}</span>"#,
+                    crate::utils::html_escape(t)
+                )
+            })
             .collect::<String>();
 
         let display_date = format_date(&note.meta.date);
@@ -117,30 +153,48 @@ async fn handle_note_list(
         ));
     }
 
-    let notes_json = serde_json::to_string(&*notes)
-        .unwrap_or_else(|_| "[]".to_string())
-        .replace("</script>", "<\\/script>");
+    let notes_json = crate::utils::escape_json_for_html_script(
+        &serde_json::to_string(&*notes).unwrap_or_else(|_| "[]".to_string()),
+    );
 
     let (_, site_config, note_config) = crate::config::load_site_data();
 
-    let raw_head = site_config.custom_head.as_deref().unwrap_or_default().trim();
-    let custom_head = raw_head.replace('\n', "\n    ").replace("{{url_path}}", "note");
+    let raw_head = site_config
+        .custom_head
+        .as_deref()
+        .unwrap_or_default()
+        .trim();
+    let custom_head = crate::utils::render_once(
+        &raw_head.replace('\n', "\n    "),
+        &[("{{url_path}}", "note")],
+    );
 
-    let raw_footer = site_config.footer_html.as_deref().unwrap_or_default().trim();
+    let raw_footer = site_config
+        .footer_html
+        .as_deref()
+        .unwrap_or_default()
+        .trim();
     let footer_html = if raw_footer.is_empty() {
         "".to_string()
     } else {
         format!(r#"<footer class="site-footer">{}</footer>"#, raw_footer)
     };
 
-    let final_html = template
-        .replace("{{note_title}}", &crate::utils::html_escape(&note_config.note_title))
-        .replace("{{note_description}}", &crate::utils::html_escape(&note_config.meta_desc))
-        .replace("{{note_keywords}}", &crate::utils::html_escape(&note_config.meta_keywords))
-        .replace("{{notes_html}}", &notes_html)
-        .replace("{{notes_json}}", &notes_json)
-        .replace("{{custom_head}}", &custom_head)
-        .replace("{{footer_html}}", &footer_html);
+    let note_title_html = crate::utils::html_escape(&note_config.note_title);
+    let note_description_html = crate::utils::html_escape(&note_config.meta_desc);
+    let note_keywords_html = crate::utils::html_escape(&note_config.meta_keywords);
+    let final_html = crate::utils::render_once(
+        &template,
+        &[
+            ("{{note_title}}", note_title_html.as_str()),
+            ("{{note_description}}", note_description_html.as_str()),
+            ("{{note_keywords}}", note_keywords_html.as_str()),
+            ("{{notes_html}}", notes_html.as_str()),
+            ("{{notes_json}}", notes_json.as_str()),
+            ("{{custom_head}}", custom_head.as_str()),
+            ("{{footer_html}}", footer_html.as_str()),
+        ],
+    );
 
     let bytes = Bytes::from(final_html);
     if !cfg!(debug_assertions) {
@@ -148,7 +202,18 @@ async fn handle_note_list(
     }
 
     let mut res = Response::new(axum::body::Body::from(bytes));
-    res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    if !cfg!(debug_assertions) {
+        res.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=300"),
+        );
+    }
+    res.headers_mut()
+        .insert(header::VARY, HeaderValue::from_static("Accept"));
     res
 }
 
@@ -160,40 +225,117 @@ async fn handle_note_detail(
 ) -> Response {
     reload_index_in_debug(&state).await;
 
-    let wants_markdown = query.format.as_deref() == Some("markdown") ||
-        req.headers().get(header::ACCEPT).and_then(|v| v.to_str().ok())
-        .map(|v| v.contains("text/markdown") || v.contains("text/x-markdown")).unwrap_or(false);
+    let wants_markdown = query.format.as_deref() == Some("markdown")
+        || req
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.contains("text/markdown") || v.contains("text/x-markdown"))
+            .unwrap_or(false);
 
     if !wants_markdown {
         let cache = state.note_html_cache.read().await;
-        if let Some(cached) = cache.get(&slug) {
-            if !cfg!(debug_assertions) {
-                let mut res = Response::new(axum::body::Body::from(cached.body.clone()));
-                res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
-                return res;
-            }
+        if let Some(cached) = cache.get(&slug)
+            && !cfg!(debug_assertions)
+        {
+            let mut res = Response::new(axum::body::Body::from(cached.body.clone()));
+            res.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/html; charset=utf-8"),
+            );
+            res.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=300"),
+            );
+            res.headers_mut()
+                .insert(header::VARY, HeaderValue::from_static("Accept"));
+            res.headers_mut().insert(
+                header::LINK,
+                HeaderValue::from_static(
+                    "<?format=markdown>; rel=\"alternate\"; type=\"text/markdown\"",
+                ),
+            );
+            return res;
         }
     }
 
     let filename = {
         let index = state.note_index.read().await;
-        index.iter().find(|n| n.meta.slug == slug).map(|n| n.filename.clone())
+        index
+            .iter()
+            .find(|n| n.meta.slug == slug)
+            .map(|n| n.filename.clone())
     };
 
     if let Some(filename) = filename {
         let file_path = format!("notes/{}", filename);
         if let Ok(content) = tokio::fs::read_to_string(&file_path).await {
+            // G-30：为笔记详情页提供 Last-Modified 校验器，支持 If-Modified-Since 304。
+            let modified = tokio::fs::metadata(&file_path)
+                .await
+                .and_then(|m| m.modified())
+                .ok();
+            let last_modified = modified.map(crate::utils::fmt_http_date);
+            let ims = req
+                .headers()
+                .get(header::IF_MODIFIED_SINCE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(crate::utils::parse_http_date);
+            if let (Some(ims), Some(modified)) = (ims, modified) {
+                let ims_secs = ims
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let modified_secs = modified
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                if ims_secs < modified_secs {
+                    // 不满足 304 条件，继续走正常渲染流程
+                } else {
+                    let mut res = Response::new(axum::body::Body::empty());
+                    *res.status_mut() = StatusCode::NOT_MODIFIED;
+                    if let Some(lm) = &last_modified {
+                        res.headers_mut().insert(
+                            header::LAST_MODIFIED,
+                            HeaderValue::from_str(lm).unwrap_or(HeaderValue::from_static(
+                                "Thu, 01 Jan 1970 00:00:00 GMT",
+                            )),
+                        );
+                    }
+                    res.headers_mut()
+                        .insert(header::VARY, HeaderValue::from_static("Accept"));
+                    res.headers_mut().insert(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),
+                    );
+                    return res;
+                }
+            }
+
             if wants_markdown {
-                let mut res = Response::new(axum::body::Body::from(content));
-                res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/markdown; charset=utf-8"));
+                // B33：剥离 frontmatter，只返回笔记正文，不泄露 updated_at 等元数据。
+                let markdown_body = crate::note_loader::parse_note(&content)
+                    .map(|(_, body)| body)
+                    .unwrap_or_else(|| content.clone());
+                let mut res = Response::new(axum::body::Body::from(markdown_body));
+                res.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/markdown; charset=utf-8"),
+                );
                 res.headers_mut().insert(
                     header::CACHE_CONTROL,
                     HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),
                 );
-                res.headers_mut().insert(
-                    header::VARY,
-                    HeaderValue::from_static("Accept"),
-                );
+                res.headers_mut()
+                    .insert(header::VARY, HeaderValue::from_static("Accept"));
+                if let Some(lm) = &last_modified {
+                    res.headers_mut().insert(
+                        header::LAST_MODIFIED,
+                        HeaderValue::from_str(lm)
+                            .unwrap_or(HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT")),
+                    );
+                }
                 return res;
             }
 
@@ -209,6 +351,10 @@ async fn handle_note_detail(
                 let mut html_output = String::new();
                 html::push_html(&mut html_output, parser);
 
+                // B1: 消毒 Markdown 渲染产物，阻止原始 HTML / javascript: 等进入 DOM。
+                // 后续的缓存写入与模板插入都使用这个消毒后的 html_output。
+                let html_output = ammonia::Builder::default().clean(&html_output).to_string();
+
                 let template = tokio::fs::read_to_string("templates/note_detail.html").await.unwrap_or_else(|_| {
                     "<!DOCTYPE html><html><body><article><h1>{{title}}</h1><div class='content'>{{content}}</div></article></body></html>".to_string()
                 });
@@ -217,9 +363,11 @@ async fn handle_note_detail(
 
                 let updated_at_html = if let Some(updated) = &meta.updated_at {
                     let disp = format_date(updated);
-                    format!(r#"<span class="note-updated" style="margin-left: 8px;">(最后修改: <time datetime="{}">{}</time>)</span>"#,
-                            crate::utils::html_escape(updated),
-                            crate::utils::html_escape(&disp))
+                    format!(
+                        r#"<span class="note-updated" style="margin-left: 8px;">(最后修改: <time datetime="{}">{}</time>)</span>"#,
+                        crate::utils::html_escape(updated),
+                        crate::utils::html_escape(&disp)
+                    )
                 } else {
                     String::new()
                 };
@@ -229,30 +377,50 @@ async fn handle_note_detail(
                 } else {
                     String::new()
                 };
-                
+
                 let keywords = meta.tags.join(", ");
                 let keywords_html = crate::utils::html_escape(&keywords);
 
                 let (_, site_config, _) = crate::config::load_site_data();
-                let raw_head = site_config.custom_head.as_deref().unwrap_or_default().trim();
-                let custom_head = raw_head.replace('\n', "\n  ").replace("{{url_path}}", &format!("note/{}", slug));
+                let raw_head = site_config
+                    .custom_head
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim();
+                let custom_head = crate::utils::render_once(
+                    &raw_head.replace('\n', "\n  "),
+                    &[("{{url_path}}", format!("note/{}", slug).as_str())],
+                );
 
-                let raw_footer = site_config.footer_html.as_deref().unwrap_or_default().trim();
+                let raw_footer = site_config
+                    .footer_html
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim();
                 let footer_html = if raw_footer.is_empty() {
                     "".to_string()
                 } else {
-                    format!(r#"<footer class="site-footer detail-footer">{}</footer>"#, raw_footer)
+                    format!(
+                        r#"<footer class="site-footer detail-footer">{}</footer>"#,
+                        raw_footer
+                    )
                 };
 
-                let final_html = template
-                    .replace("{{title}}", &crate::utils::html_escape(&meta.title))
-                    .replace("{{excerpt}}", &excerpt_html)
-                    .replace("{{keywords}}", &keywords_html)
-                    .replace("{{date}}", &crate::utils::html_escape(&display_date))
-                    .replace("{{updated_at_html}}", &updated_at_html)
-                    .replace("{{content}}", &html_output)
-                    .replace("{{custom_head}}", &custom_head)
-                    .replace("{{footer_html}}", &footer_html);
+                let title_html = crate::utils::html_escape(&meta.title);
+                let date_html = crate::utils::html_escape(&display_date);
+                let final_html = crate::utils::render_once(
+                    &template,
+                    &[
+                        ("{{title}}", title_html.as_str()),
+                        ("{{excerpt}}", excerpt_html.as_str()),
+                        ("{{keywords}}", keywords_html.as_str()),
+                        ("{{date}}", date_html.as_str()),
+                        ("{{updated_at_html}}", updated_at_html.as_str()),
+                        ("{{content}}", html_output.as_str()),
+                        ("{{custom_head}}", custom_head.as_str()),
+                        ("{{footer_html}}", footer_html.as_str()),
+                    ],
+                );
 
                 let bytes = Bytes::from(final_html);
 
@@ -264,18 +432,39 @@ async fn handle_note_detail(
                             cache.remove(&key);
                         }
                     }
-                    cache.insert(slug.clone(), crate::state::NoteHtmlCache { body: bytes.clone() });
+                    cache.insert(
+                        slug.clone(),
+                        crate::state::NoteHtmlCache {
+                            body: bytes.clone(),
+                        },
+                    );
                 }
 
                 let mut res = Response::new(axum::body::Body::from(bytes));
-                res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
                 res.headers_mut().insert(
-                    header::VARY,
-                    HeaderValue::from_static("Accept"),
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/html; charset=utf-8"),
                 );
+                if !cfg!(debug_assertions) {
+                    res.headers_mut().insert(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("public, max-age=300"),
+                    );
+                }
+                if let Some(lm) = &last_modified {
+                    res.headers_mut().insert(
+                        header::LAST_MODIFIED,
+                        HeaderValue::from_str(lm)
+                            .unwrap_or(HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT")),
+                    );
+                }
+                res.headers_mut()
+                    .insert(header::VARY, HeaderValue::from_static("Accept"));
                 res.headers_mut().insert(
                     header::LINK,
-                    HeaderValue::from_static("</?format=markdown>; rel=\"alternate\"; type=\"text/markdown\""),
+                    HeaderValue::from_static(
+                        "<?format=markdown>; rel=\"alternate\"; type=\"text/markdown\"",
+                    ),
                 );
                 return res;
             }

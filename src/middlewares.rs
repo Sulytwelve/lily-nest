@@ -1,16 +1,18 @@
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::{
     Json,
-    extract::{Request, State},
-    http::{HeaderName, HeaderValue, Method, StatusCode, header},
+    extract::{Request, State, connect_info::ConnectInfo},
+    http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header},
     middleware,
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use tower_http::cors::{Any, CorsLayer};
+use rand::Rng;
+use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
 
 use crate::{
@@ -18,26 +20,103 @@ use crate::{
     state::AppState,
 };
 
+const PLACEHOLDER_ANSWERS: &[&str] = &["default1", "default2", "default3"];
+
 pub fn build_cors_layer(security_config: &SecurityConfig) -> CorsLayer {
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
-    if security_config.allow_origins.contains(&"*".to_string()) {
-        cors.allow_origin(Any)
-    } else {
-        let origins: Vec<HeaderValue> = security_config
-            .allow_origins
-            .iter()
-            .filter_map(|o| match o.parse() {
-                Ok(v) => Some(v),
-                Err(_) => {
-                    error!("[security] 解析失败, 非法的配置: {}", o);
-                    None
-                }
-            })
-            .collect();
-        cors.allow_origin(origins)
+    if security_config.allow_origins.iter().any(|o| o == "*") {
+        error!(
+            "[security] allow_origins 包含通配符 '*'，已忽略。请配置真实源站，或留空以关闭 CORS。"
+        );
+        return cors;
+    }
+
+    if security_config.allow_origins.is_empty() {
+        return cors;
+    }
+
+    let origins: Vec<HeaderValue> = security_config
+        .allow_origins
+        .iter()
+        .filter_map(|o| match o.parse() {
+            Ok(v) => Some(v),
+            Err(_) => {
+                error!("[security] 解析失败, 非法的配置: {}", o);
+                None
+            }
+        })
+        .collect();
+    cors.allow_origin(origins)
+}
+
+/// 零依赖恒定时间字符串比较（仅用于密码/密保答案这类短字符串）。
+///
+/// 固定比较 256 个字节，两个方向都用不同的填充字节，并混入长度差异，
+/// 避免「长度不等时提前返回」造成的长度侧信道。
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
+    const CMP_LEN: usize = 256;
+    const PAD: u8 = 0x00;
+
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+    let mut diff = (a_bytes.len() ^ b_bytes.len()) as u16;
+
+    for i in 0..CMP_LEN {
+        let x = a_bytes.get(i).copied().unwrap_or(PAD);
+        let y = b_bytes.get(i).copied().unwrap_or(PAD);
+        diff |= (x ^ y) as u16;
+    }
+
+    diff == 0
+}
+
+/// 登录/鉴权失败响应统一附加防缓存头，避免错误响应被浏览器或代理缓存。
+fn auth_error(status: StatusCode, msg: &'static str) -> Response {
+    let mut res = (status, msg).into_response();
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    res.headers_mut()
+        .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    res.headers_mut()
+        .insert(header::EXPIRES, HeaderValue::from_static("0"));
+    res
+}
+
+/// B19：查询 jti 是否在服务端吊销表中，并顺带清理已过期条目。
+async fn is_jwt_revoked(state: &Arc<AppState>, claims: &AuthClaims) -> bool {
+    let Some(jti) = claims.jti.as_deref() else {
+        return false;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let mut revoked = state.revoked_jtis.lock().await;
+    revoked.retain(|_, exp| *exp > now);
+    revoked.contains_key(jti)
+}
+
+/// B19：把 jti 写入吊销表，失效时间与 token exp 一致。
+pub async fn revoke_jwt(state: &Arc<AppState>, claims: &AuthClaims) {
+    let Some(jti) = claims.jti.as_deref() else {
+        return;
+    };
+    let exp = claims.exp;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if exp > now {
+        state.revoked_jtis.lock().await.insert(jti.to_string(), exp);
     }
 }
 
@@ -49,12 +128,58 @@ pub async fn security_headers(
     let mut res = next.run(req).await;
 
     let config = if cfg!(debug_assertions) {
-        std::sync::Arc::new(tokio::task::spawn_blocking(crate::config::load_security_config).await.unwrap_or_else(|e| {
-            tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
-            crate::model::SecurityConfig::default()
-        }))
+        std::sync::Arc::new(
+            tokio::task::spawn_blocking(crate::config::load_security_config)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
+                    crate::model::SecurityConfig::default()
+                }),
+        )
     } else {
         state.security_config.clone()
+    };
+
+    let mut csp_policy = if config.csp_policy.trim().is_empty() {
+        error!("[security] CSP policy is empty; falling back to the default policy");
+        crate::model::SecurityConfig::default().csp_policy
+    } else {
+        config.csp_policy.clone()
+    };
+
+    if let Some(token) = state.cloudflare_config.web_analytics_token.as_deref() {
+        let token = token.trim();
+        if !token.is_empty()
+            && token
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
+            if csp_policy.contains("script-src 'self'")
+                && !csp_policy.contains("https://static.cloudflareinsights.com")
+            {
+                csp_policy = csp_policy.replace(
+                    "script-src 'self'",
+                    "script-src 'self' https://static.cloudflareinsights.com",
+                );
+            }
+            if csp_policy.contains("connect-src 'self'")
+                && !csp_policy.contains("https://cloudflareinsights.com")
+            {
+                csp_policy = csp_policy.replace(
+                    "connect-src 'self'",
+                    "connect-src 'self' https://cloudflareinsights.com",
+                );
+            }
+        }
+    }
+
+    let permissions_policy = if config.permissions_policy.trim().is_empty() {
+        error!("[security] Permissions-Policy is empty; falling back to the default policy");
+        crate::model::SecurityConfig::default()
+            .permissions_policy
+            .clone()
+    } else {
+        config.permissions_policy.clone()
     };
 
     let headers_map = res.headers_mut();
@@ -68,127 +193,268 @@ pub async fn security_headers(
         header::REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
-    headers_map.insert(
-        header::X_FRAME_OPTIONS,
-        HeaderValue::from_static("DENY"),
-    );
+    headers_map.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     headers_map.insert(
         header::STRICT_TRANSPORT_SECURITY,
         HeaderValue::from_static("max-age=31536000; includeSubDomains"),
     );
+    // M6：收紧跨源隔离
+    headers_map.insert(
+        HeaderName::from_static("cross-origin-opener-policy"),
+        HeaderValue::from_static("same-origin"),
+    );
+    headers_map.insert(
+        HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("same-origin"),
+    );
 
     // 动态 headers — 仅这 2 个需要运行时构建
-    if let Ok(v) = HeaderValue::try_from(config.csp_policy.as_str()) {
-        headers_map.insert(header::CONTENT_SECURITY_POLICY, v);
+    match HeaderValue::try_from(csp_policy.as_str()) {
+        Ok(v) => {
+            headers_map.insert(header::CONTENT_SECURITY_POLICY, v);
+        }
+        Err(e) => {
+            error!("[security] invalid CSP policy ({e}); falling back to the default policy");
+            let default_cfg = crate::model::SecurityConfig::default();
+            if let Ok(v) = HeaderValue::try_from(default_cfg.csp_policy.as_str()) {
+                headers_map.insert(header::CONTENT_SECURITY_POLICY, v);
+            }
+        }
     }
-    if let Ok(v) = HeaderValue::try_from(config.permissions_policy.as_str()) {
-        headers_map.insert(
-            HeaderName::from_static("permissions-policy"),
-            v,
-        );
+    match HeaderValue::try_from(permissions_policy.as_str()) {
+        Ok(v) => {
+            headers_map.insert(HeaderName::from_static("permissions-policy"), v);
+        }
+        Err(e) => {
+            error!(
+                "[security] invalid Permissions-Policy ({e}); falling back to the default policy"
+            );
+            let default_cfg = crate::model::SecurityConfig::default();
+            if let Ok(v) = HeaderValue::try_from(default_cfg.permissions_policy.as_str()) {
+                headers_map.insert(HeaderName::from_static("permissions-policy"), v);
+            }
+        }
     }
 
     res
 }
 
+/// 依据 TCP 对端 IP 决策是否信任代理头（B3）。
+///
+/// 只有对端为 loopback（如本机 cloudflared）或配置在
+/// `security.trusted_proxy_ips` 中时，才采信 `cf-connecting-ip` /
+/// `x-real-ip` / `x-forwarded-for`；否则直接使用对端 IP。
+fn resolve_client_ip(
+    peer: SocketAddr,
+    headers: &HeaderMap,
+    trusted_ips: Option<&Vec<String>>,
+) -> String {
+    let trust_proxy = peer.ip().is_loopback()
+        || trusted_ips.is_some_and(|ips| ips.iter().any(|ip| ip.trim() == peer.ip().to_string()));
+
+    if trust_proxy {
+        for name in ["cf-connecting-ip", "x-real-ip"] {
+            if let Some(value) = headers.get(name).and_then(|v| v.to_str().ok()) {
+                let value = value.trim();
+                if !value.is_empty() && value.parse::<IpAddr>().is_ok() {
+                    return value.to_string();
+                }
+            }
+        }
+        if let Some(value) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok())
+            && let Some(first) = value.split(',').next()
+        {
+            let first = first.trim();
+            if !first.is_empty() && first.parse::<IpAddr>().is_ok() {
+                return first.to_string();
+            }
+        }
+    }
+
+    peer.ip().to_string()
+}
+
 /// POST /api/v1/admin/login — 验证凭据，签发 JWT
 pub async fn handle_admin_login(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     req: Request,
 ) -> Response {
     let headers = req.headers().clone();
     let req_uri_authority = req.uri().authority().map(|a| a.as_str().to_string());
 
-    let client_ip = headers.get("cf-connecting-ip")
-        .or_else(|| headers.get("x-real-ip"))
-        .or_else(|| headers.get("x-forwarded-for"))
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("Unknown IP");
+    let security_config = if cfg!(debug_assertions) {
+        std::sync::Arc::new(
+            tokio::task::spawn_blocking(crate::config::load_security_config)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
+                    crate::model::SecurityConfig::default()
+                }),
+        )
+    } else {
+        state.security_config.clone()
+    };
 
-    // Rate limiting — 只有登录请求才消耗限额，带 token 的正常请求不计入
+    let client_ip = resolve_client_ip(peer, &headers, security_config.trusted_proxy_ips.as_ref());
+
+    // Rate limiting — 分片有界限流表（B26），只有登录请求才消耗限额
+    const RATE_LIMIT_WINDOW_SECS: u64 = 60;
     {
         let now = Instant::now();
-        let mut limiter = state.auth_rate_limiter.lock().await;
-        limiter.retain(|_, w| {
-            w.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
-            !w.is_empty()
-        });
-        let window = limiter.entry(client_ip.to_string()).or_default();
-        if window.len() >= 5 {
-            drop(limiter);
+        let mut shard = state.auth_rate_limiter.lock_shard(&client_ip).await;
+
+        if shard.last_cleanup.elapsed() >= Duration::from_secs(RATE_LIMIT_WINDOW_SECS) {
+            shard.buckets.retain(|_, b| {
+                now.duration_since(b.window_start) < Duration::from_secs(RATE_LIMIT_WINDOW_SECS)
+            });
+            shard.last_cleanup = now;
+        }
+
+        let shard_limit = state.auth_rate_limiter.per_shard_limit();
+        if shard.buckets.len() >= shard_limit && !shard.buckets.contains_key(&client_ip) {
+            drop(shard);
+            warn!(
+                "Admin login rate limiter shard is full; rejecting IP: {}",
+                client_ip
+            );
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, "60")],
+                "Too many requests",
+            )
+                .into_response();
+        }
+
+        let bucket =
+            shard
+                .buckets
+                .entry(client_ip.clone())
+                .or_insert(crate::state::RateLimitBucket {
+                    window_start: now,
+                    count: 0,
+                });
+
+        if now.duration_since(bucket.window_start) >= Duration::from_secs(RATE_LIMIT_WINDOW_SECS) {
+            bucket.window_start = now;
+            bucket.count = 0;
+        }
+
+        if bucket.count >= 5 {
+            drop(shard);
             warn!("Admin login rate limit exceeded for IP: {}", client_ip);
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, "60")],
                 "Too many requests",
-            ).into_response();
+            )
+                .into_response();
         }
-        window.push(now);
+
+        bucket.count += 1;
     }
 
-    // 解析请求体
-    let body_bytes = match axum::body::to_bytes(req.into_body(), 64 * 1024).await {
-        Ok(b) => b,
-        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid request body").into_response(),
+    // 解析请求体（带 15s 超时，避免慢速 body 长期占连接）
+    let body_bytes = match tokio::time::timeout(
+        Duration::from_secs(15),
+        axum::body::to_bytes(req.into_body(), 64 * 1024),
+    )
+    .await
+    {
+        Ok(Ok(b)) => b,
+        Ok(Err(err)) => {
+            let is_length_limit = std::error::Error::source(&err)
+                .is_some_and(|source| source.is::<http_body_util::LengthLimitError>());
+            if is_length_limit {
+                return (StatusCode::PAYLOAD_TOO_LARGE, "Payload too large").into_response();
+            }
+            return (StatusCode::BAD_REQUEST, "Invalid request body").into_response();
+        }
+        Err(_) => return (StatusCode::REQUEST_TIMEOUT, "Request timeout").into_response(),
     };
     let payload: AdminLoginRequest = match serde_json::from_slice(&body_bytes) {
         Ok(p) => p,
         Err(_) => return (StatusCode::BAD_REQUEST, "Invalid JSON").into_response(),
     };
 
-    let security_config = if cfg!(debug_assertions) {
-        std::sync::Arc::new(tokio::task::spawn_blocking(crate::config::load_security_config).await.unwrap_or_else(|e| {
-            tracing::error!("load_security_config panicked in spawn_blocking: {}", e);
-            crate::model::SecurityConfig::default()
-        }))
-    } else {
-        state.security_config.clone()
-    };
+    let auth_secrets = state.auth_secrets.read().await;
+    let password_hash = auth_secrets.admin_password_hash.clone();
+    let answer_hashes = auth_secrets.admin_security_answer_hashes.clone();
+    drop(auth_secrets);
 
-    let actual_password = security_config.admin_password.clone();
-    let actual_answers = security_config.admin_security_answers.clone();
     let auth_ext_secq = security_config.auth_ext_secq.unwrap_or(false);
     let auth_ext_cftrace = security_config.auth_ext_cftrace.unwrap_or(false);
-    let allowed_locs = security_config.allowed_locs.clone().unwrap_or_else(|| vec!["CN".to_string()]);
-    let expiry_secs = security_config.jwt_expiry_secs.unwrap_or(28800);
+    let allowed_locs = security_config
+        .allowed_locs
+        .clone()
+        .unwrap_or_else(|| vec!["CN".to_string()]);
+    // M5：JWT 有效期设上下限，避免无上限长命 token
+    let expiry_secs = security_config
+        .jwt_expiry_secs
+        .unwrap_or(28800)
+        .clamp(60, 86400);
 
-    // 1. 验证密码
-    let password_ok = match &actual_password {
+    // 1. 验证密码（使用运行时 AuthSecrets 中的加盐哈希）
+    let password_ok = match password_hash.as_deref() {
         None => {
-            error!("[Security] Admin login attempt rejected: Admin password not configured on server.");
-            false
+            error!(
+                "[Security] Admin login attempt rejected: Admin password not configured on server."
+            );
+            return auth_error(
+                StatusCode::UNAUTHORIZED,
+                "Admin password is not configured. Run lily-nest set-password.",
+            );
         }
-        Some(a) if a.is_empty() || a == "CHANGE_YOUR_PASSWORD" => {
-            error!("[Security] Admin login attempt rejected: The default placeholder password ('CHANGE_YOUR_PASSWORD') is in use. Please change your admin_password in config.toml!");
-            false
-        }
-        Some(a) => payload.password == *a,
+        Some(hash) => crate::secrets::verify_secret(&payload.password, hash),
     };
 
     if !password_ok {
         warn!("Admin login failed: wrong password. IP: {}", client_ip);
-        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
     }
 
     // 2. 验证安全问题（可选）
     if auth_ext_secq {
-        let answers = match actual_answers {
-            Some(ref a) => a,
+        let questions = match security_config.admin_security_questions.as_ref() {
+            Some(q) => q,
             None => {
-                error!("[Security] auth_ext_secq enabled but no answers configured");
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                error!("[Security] auth_ext_secq enabled but no security questions configured");
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
             }
         };
+        if answer_hashes.is_empty() || answer_hashes.len() != questions.len() {
+            error!(
+                "[Security] auth_ext_secq enabled but answer hashes ({}) and questions ({}) count mismatch",
+                answer_hashes.len(),
+                questions.len()
+            );
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
+        }
+        if questions
+            .iter()
+            .any(|q| PLACEHOLDER_ANSWERS.contains(&q.as_str()))
+        {
+            error!(
+                "[Security] auth_ext_secq enabled but placeholder/default security questions are in use"
+            );
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
+        }
         match (payload.question_index, &payload.answer) {
-            (Some(idx), Some(ans)) if idx < answers.len() => {
-                if &answers[idx] != ans {
-                    warn!("Admin login failed: wrong security answer (idx={}). IP: {}", idx, client_ip);
-                    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            (Some(idx), Some(ans)) if idx < answer_hashes.len() => {
+                if !crate::secrets::verify_secret(ans, &answer_hashes[idx]) {
+                    warn!(
+                        "Admin login failed: wrong security answer (idx={}). IP: {}",
+                        idx, client_ip
+                    );
+                    return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
                 }
             }
             _ => {
-                warn!("Admin login failed: security question index or answer missing. IP: {}", client_ip);
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                warn!(
+                    "Admin login failed: security question index or answer missing. IP: {}",
+                    client_ip
+                );
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
             }
         }
     }
@@ -205,11 +471,11 @@ pub async fn handle_admin_login(
         for line in cf_trace.lines() {
             if let Some((key, value)) = line.split_once('=') {
                 match key.trim() {
-                    "h"       => trace_host = Some(value.trim().to_string()),
-                    "loc"     => loc         = Some(value.trim().to_string()),
-                    "warp"    => warp        = Some(value.trim().to_string()),
-                    "gateway" => gateway     = Some(value.trim().to_string()),
-                    "ip"      => trace_ip    = Some(value.trim().to_string()),
+                    "h" => trace_host = Some(value.trim().to_string()),
+                    "loc" => loc = Some(value.trim().to_string()),
+                    "warp" => warp = Some(value.trim().to_string()),
+                    "gateway" => gateway = Some(value.trim().to_string()),
+                    "ip" => trace_ip = Some(value.trim().to_string()),
                     _ => {}
                 }
             }
@@ -218,40 +484,71 @@ pub async fn handle_admin_login(
         let loc_ok = match &loc {
             Some(l) => {
                 if !allowed_locs.contains(l) {
-                    warn!("Admin login failed: CF Trace loc '{}' not allowed. IP: {}", l, client_ip);
-                    return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                    warn!(
+                        "Admin login failed: CF Trace loc '{}' not allowed. IP: {}",
+                        l, client_ip
+                    );
+                    return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
                 }
                 true
             }
             None => {
-                warn!("Admin login failed: CF Trace loc missing. IP: {}", client_ip);
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+                warn!(
+                    "Admin login failed: CF Trace loc missing. IP: {}",
+                    client_ip
+                );
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
             }
         };
 
         if loc_ok && warp.as_deref() != Some("on") {
-            warn!("Admin login failed: CF Trace WARP is off. IP: {}", client_ip);
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            warn!(
+                "Admin login failed: CF Trace WARP is off. IP: {}",
+                client_ip
+            );
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
         if loc_ok && gateway.as_deref() != Some("on") {
-            warn!("Admin login failed: CF Trace Gateway is off. IP: {}", client_ip);
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            warn!(
+                "Admin login failed: CF Trace Gateway is off. IP: {}",
+                client_ip
+            );
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
 
-        // 校验 trace IP 与客户端 IP 一致性
-        if let Some(ref tip) = trace_ip {
-            if tip != client_ip {
-                warn!("[Security] Trace IP '{}' does not match CF-Connecting-IP '{}'. IP: {}", tip, client_ip, client_ip);
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        // ip 与 h 为必填，缺失直接拒绝（fail-closed）
+        let trace_ip = match trace_ip {
+            Some(ip) => ip,
+            None => {
+                warn!("Admin login failed: CF Trace ip missing. IP: {}", client_ip);
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
             }
+        };
+        let trace_host = match trace_host {
+            Some(h) => h,
+            None => {
+                warn!(
+                    "Admin login failed: CF Trace host missing. IP: {}",
+                    client_ip
+                );
+                return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
+            }
+        };
+
+        // 校验 trace IP 与客户端 IP 一致性
+        if trace_ip.as_str() != client_ip {
+            warn!(
+                "[Security] Trace IP '{}' does not match CF-Connecting-IP '{}'. IP: {}",
+                trace_ip, client_ip, client_ip
+            );
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
 
         // 校验 trace host 与请求 host 一致性
         // 在 HTTP/2 下，客户端可能只发送 :authority 伪头而不发送 Host 头。
         // hyper 会将 :authority 放入 uri 的 authority 部分。
         let request_host = headers
-            .get("x-forwarded-host")
-            .or_else(|| headers.get("host"))
+            .get("host")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string())
             .or_else(|| req_uri_authority.clone())
@@ -268,14 +565,18 @@ pub async fn handle_admin_login(
             } else {
                 h.split(':').next().unwrap_or(h)
             };
-            without_port.strip_prefix("www.").unwrap_or(without_port).to_string()
+            without_port
+                .strip_prefix("www.")
+                .unwrap_or(without_port)
+                .to_string()
         };
 
-        if let Some(ref th) = trace_host {
-            if clean_host(th) != clean_host(&request_host) {
-                warn!("[Security] Trace host '{}' does not match request host '{}'. IP: {}", th, request_host, client_ip);
-                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
-            }
+        if clean_host(&trace_host) != clean_host(&request_host) {
+            warn!(
+                "[Security] Trace host '{}' does not match request host '{}'. IP: {}",
+                trace_host, request_host, client_ip
+            );
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
     }
 
@@ -284,13 +585,21 @@ pub async fn handle_admin_login(
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let expires_at = now_secs + expiry_secs;
+    let expires_at = now_secs.saturating_add(expiry_secs);
 
+    let mut jti_bytes = [0u8; 16];
+    rand::rng().fill_bytes(&mut jti_bytes);
+    let jti = jti_bytes
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
     let claims = AuthClaims {
         sub: "admin".to_string(),
         name: "管理员".to_string(),
         role: "admin".to_string(),
         exp: expires_at,
+        iat: Some(now_secs),
+        jti: Some(jti),
     };
 
     let token = match encode(
@@ -310,12 +619,20 @@ pub async fn handle_admin_login(
         client_ip, expires_at
     );
 
-    Json(AdminLoginResponse {
+    let mut res = Json(AdminLoginResponse {
         token,
         expires_at,
         role: "admin".to_string(),
         name: "管理员".to_string(),
-    }).into_response()
+    })
+    .into_response();
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    res.headers_mut()
+        .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    res.headers_mut()
+        .insert(header::EXPIRES, HeaderValue::from_static("0"));
+    res
 }
 
 /// admin_auth_middleware — 只验 Bearer JWT，不再接受密码 header
@@ -333,7 +650,12 @@ pub async fn admin_auth_middleware(
     let token = match token {
         Some(t) => t.to_string(),
         None => {
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Bearer")],
+                "Unauthorized",
+            )
+                .into_response();
         }
     };
 
@@ -345,16 +667,35 @@ pub async fn admin_auth_middleware(
         &validation,
     ) {
         Ok(data) if data.claims.role == "admin" => {
+            if is_jwt_revoked(&state, &data.claims).await {
+                warn!("Admin JWT rejected: token has been revoked (jti)");
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    [(header::WWW_AUTHENTICATE, "Bearer")],
+                    "Unauthorized",
+                )
+                    .into_response();
+            }
             // Token 有效且角色为 admin，放行
             next.run(req).await
         }
         Ok(_) => {
             warn!("Admin JWT validation failed: role is not admin");
-            (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
+            (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Bearer")],
+                "Unauthorized",
+            )
+                .into_response()
         }
         Err(e) => {
             warn!("Admin JWT validation failed: {}", e);
-            (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
+            (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Bearer")],
+                "Unauthorized",
+            )
+                .into_response()
         }
     }
 }
@@ -362,7 +703,7 @@ pub async fn admin_auth_middleware(
 /// note_auth_middleware — 笔记与发文专线鉴权中间件
 /// 支持两种认证机制：
 /// 1. Admin / Agent 使用常规 HS256 JWT（本地 jwt_secret）
-/// 2. Agent 使用 Ed25519 / RS256 签名的 JWT（本地 .agent.pub 公钥验签），完全免除密码与 cf-trace
+/// 2. Agent 使用 Ed25519 签名的 JWT（本地 .agent.pub 公钥验签），完全免除密码与 cf-trace
 pub async fn note_auth_middleware(
     State(state): State<Arc<AppState>>,
     req: Request,
@@ -377,7 +718,12 @@ pub async fn note_auth_middleware(
     let token = match token {
         Some(t) => t.to_string(),
         None => {
-            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+            return (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Bearer")],
+                "Unauthorized",
+            )
+                .into_response();
         }
     };
 
@@ -388,10 +734,17 @@ pub async fn note_auth_middleware(
         &DecodingKey::from_secret(&state.jwt_secret),
         &validation_hs256,
     ) {
+        if is_jwt_revoked(&state, &data.claims).await {
+            warn!("Note API request rejected: token has been revoked (jti)");
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
+        }
         if data.claims.role == "admin" || data.claims.role == "agent" {
             return next.run(req).await;
         } else {
-            warn!("Note API request rejected: role '{}' is neither admin nor agent", data.claims.role);
+            warn!(
+                "Note API request rejected: role '{}' is neither admin nor agent",
+                data.claims.role
+            );
             return (StatusCode::FORBIDDEN, "Forbidden: insufficient role").into_response();
         }
     }
@@ -400,26 +753,40 @@ pub async fn note_auth_middleware(
     if let Some(ref pub_key_bytes) = state.agent_pub_key {
         let validation_asym = Validation::new(Algorithm::EdDSA);
 
-        let decoding_key = DecodingKey::from_ed_pem(pub_key_bytes)
-            .or_else(|_| DecodingKey::from_rsa_pem(pub_key_bytes));
+        let decoding_key = DecodingKey::from_ed_pem(pub_key_bytes);
 
         if let Ok(key) = decoding_key {
             if let Ok(data) = decode::<AuthClaims>(&token, &key, &validation_asym) {
+                if is_jwt_revoked(&state, &data.claims).await {
+                    warn!("Note API request rejected: agent token has been revoked (jti)");
+                    return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
+                }
                 if data.claims.role == "agent" || data.claims.role == "admin" {
-                    info!("Agent public key authentication successful for sub: {}", data.claims.sub);
+                    info!(
+                        "Agent public key authentication successful for sub: {}",
+                        data.claims.sub
+                    );
                     return next.run(req).await;
                 } else {
-                    warn!("Agent JWT valid but role '{}' is not allowed", data.claims.role);
+                    warn!(
+                        "Agent JWT valid but role '{}' is not allowed",
+                        data.claims.role
+                    );
                     return (StatusCode::FORBIDDEN, "Forbidden").into_response();
                 }
             } else {
                 warn!("Agent public key signature verification failed for token");
             }
         } else {
-            warn!("Failed to parse agent public key from PEM format (must be Ed25519 or RSA PEM)");
+            warn!("Failed to parse agent public key from PEM format (must be Ed25519 PEM)");
         }
     }
 
     warn!("Note API authentication failed: invalid token or signature");
-    (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
+    (
+        StatusCode::UNAUTHORIZED,
+        [(header::WWW_AUTHENTICATE, "Bearer")],
+        "Unauthorized",
+    )
+        .into_response()
 }

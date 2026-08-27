@@ -1,5 +1,6 @@
 /* 默认浅色变量 */
 :root {
+  color-scheme: light dark;
   --md-sys-color-primary: rgb(114 81 135);
   --md-sys-color-surface-tint: rgb(114 81 135);
   --md-sys-color-on-primary: rgb(255 255 255);
