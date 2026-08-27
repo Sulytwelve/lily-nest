@@ -18,7 +18,7 @@
 
 - v0.2.9 冷启动实测仅需 **684 KB** 内存（峰值 **1.4 MB**）；v0.2.8 在玩客云（armv7l）上持续运行 5 天、经历多次后台配置写入后，常驻内存稳定在 **3.3 MB**（峰值 **4.3 MB**）。
 
-### 编译体积（v0.3.0 构建矩阵）
+### 编译体积（v0.3.2 构建矩阵）
 
 | 版本 | RUSTFLAGS / profile | 二进制大小 | 服务 |
 |:---|:---|:---|:---|
@@ -28,9 +28,9 @@
 
 > 注：`-C lto=fat` 不能放 RUSTFLAGS（proc-macro crate 在 stable 上会报 `lto cannot be used for proc-macro crate type without -Zdylib-lto`），须走 cargo profile（`--config 'profile.release.lto="fat"'`）。
 
-### 性能压测报告（v0.3.0 · AMD64 本地回环）
+### 性能压测报告（v0.3.2 · AMD64 本地回环）
 
-> **测试硬件更新**：压测基准机由 v0.2.8 的 **Ryzen 7 7840HS**（35-54W 高性能档）更换为 **SULY-HP8B6EA · AMD Ryzen 7 PRO 7840U**（8C/16T · 30GB DDR5 · Arch Linux · rustc 1.96，15-30W 低功耗档）。两者同为 Zen 4（Phoenix）8C/16T、16MB L3、5.1GHz 单核睿频上限，唯一本质差异是**功耗墙 → 持续全核频率**：7840HS 典型 4.4~4.6 GHz，7840U 全核仅 ~3.85 GHz（单核实测 4.84 GHz，HP 固件把最高档限制在 196/255）。下表 v0.2.8 参考列仍为旧基准机 7840HS 数据，两者差距约 3/4 由功耗墙解释、其余来自 v0.3.0 新增中间件/安全头/缓存检查——代码整体无退步。
+> **测试硬件更新**：压测基准机由 v0.2.8 的 **Ryzen 7 7840HS**（35-54W 高性能档）更换为 **SULY-HP8B6EA · AMD Ryzen 7 PRO 7840U**（8C/16T · 30GB DDR5 · Arch Linux · rustc 1.96，15-30W 低功耗档）。两者同为 Zen 4（Phoenix）8C/16T、16MB L3、5.1GHz 单核睿频上限，唯一本质差异是**功耗墙 → 持续全核频率**：7840HS 典型 4.4~4.6 GHz，7840U 全核仅 ~3.85 GHz（单核实测 4.84 GHz，HP 固件把最高档限制在 196/255）。下表 v0.2.8 参考列仍为旧基准机 7840HS 数据，两者差距约 3/4 由功耗墙解释、其余来自 v0.3.2 新增中间件/安全头/缓存检查——代码整体无退步。
 
 #### 本地回环 QPS（Req/s，wrk / oha 均 10s）
 
@@ -79,7 +79,7 @@
 1. **极端优化收益**（同为 HTTPS）：wrk +9~11%，oha h1 +13%，oha h2 **+23%**（高并发下最明显）。
 2. **TLS 开销**（同构建，HTTP vs HTTPS）：wrk ~13%，oha h2 ~10%。
 3. 首页 `/`（~11KB 缓存 HTML）QPS 约为 health 的 3/4，吞吐 3.4~4.8 GB/s。
-4. **vs v0.2.8 参考**：极端 force-http 达参考值 76%（health wrk）、81%（root wrk）、89%（oha h2 health）、104%（oha h2 root，反超）；差距主要来自 CPU 功耗墙与 v0.3.0 新增中间件。
+4. **vs v0.2.8 参考**：极端 force-http 达参考值 76%（health wrk）、81%（root wrk）、89%（oha h2 health）、104%（oha h2 root，反超）；差距主要来自 CPU 功耗墙与 v0.3.2 新增中间件。
 
 #### Go/fasthttp 对比参考（CodeX 转译，非生产）
 
