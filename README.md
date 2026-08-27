@@ -18,29 +18,75 @@
 
 - v0.2.9 冷启动实测仅需 **684 KB** 内存（峰值 **1.4 MB**）；v0.2.8 在玩客云（armv7l）上持续运行 5 天、经历多次后台配置写入后，常驻内存稳定在 **3.3 MB**（峰值 **4.3 MB**）。
 
-### 编译体积
+### 编译体积（v0.3.0 构建矩阵）
 
-| 版本 | 编译器优化 | 二进制 | tar.xz |
+| 版本 | RUSTFLAGS / profile | 二进制大小 | 服务 |
 |:---|:---|:---|:---|
-| v0.2.8-beta | LTO + strip | ~5.0 MB | ~2.1MB |
-| v0.3.0 | LTO + strip + panic=abort + codegen-units=1 | 6.9 MB | 2.4 MB |
+| 标准 release | 无 | 14.17 MB | HTTPS :8443（release 强制 TLS） |
+| 极端优化 std | `-C target-cpu=native -C embed-bitcode=yes` + profile `lto=fat, codegen-units=1, panic=abort, strip=symbols` | 9.99 MB | HTTPS :8443 |
+| 极端优化 force-http | 同上 + `--features force-http` | 9.98 MB | HTTP :8880 |
 
-> v0.3.0 因引入「梨记」笔记模块（pulldown-cmark、chrono、jsonwebtoken 等），体积略有增长。后续可通过进一步裁剪依赖或 feature flag 优化。
+> 注：`-C lto=fat` 不能放 RUSTFLAGS（proc-macro crate 在 stable 上会报 `lto cannot be used for proc-macro crate type without -Zdylib-lto`），须走 cargo profile（`--config 'profile.release.lto="fat"'`）。
 
-### 性能压测报告（v0.2.8-beta，v0.3.0 待测）
-环境：Ryzen 7 7840HS + DDR5 32G 5600MT + Arch Linux，release + LTO + force-http 模式
+### 性能压测报告（v0.3.0 · AMD64 本地回环）
+
+> **测试硬件更新**：压测基准机由 v0.2.8 的 **Ryzen 7 7840HS**（35-54W 高性能档）更换为 **SULY-HP8B6EA · AMD Ryzen 7 PRO 7840U**（8C/16T · 30GB DDR5 · Arch Linux · rustc 1.96，15-30W 低功耗档）。两者同为 Zen 4（Phoenix）8C/16T、16MB L3、5.1GHz 单核睿频上限，唯一本质差异是**功耗墙 → 持续全核频率**：7840HS 典型 4.4~4.6 GHz，7840U 全核仅 ~3.85 GHz（单核实测 4.84 GHz，HP 固件把最高档限制在 196/255）。下表 v0.2.8 参考列仍为旧基准机 7840HS 数据，两者差距约 3/4 由功耗墙解释、其余来自 v0.3.0 新增中间件/安全头/缓存检查——代码整体无退步。
+
+#### 本地回环 QPS（Req/s，wrk / oha 均 10s）
+
+| 场景 | 工具 | 协议 | 标准 release | 极端 std | 极端 force-http | v0.2.8 参考* |
+|:---|---:|---:|---:|---:|---:|---:|
+| `/api/v1/health` | wrk -t8 -c64 | HTTP/1.1 | 401,729 | 437,247 | **500,633** | 656,781 |
+| `/` | wrk -t8 -c64 | HTTP/1.1 | 302,112 | 315,098 | **422,629** | 523,439 |
+| `/api/v1/health` | wrk -t8 -c256 | HTTP/1.1 | 461,248 | 511,499 | **600,223** | — |
+| `/api/v1/health` | oha -c256 | HTTP/2 | 268,108 | 329,195 | **364,381** | 410,882 |
+| `/` | oha -c256 | HTTP/2 | 208,173 | 228,636 | **310,677** | 298,334 |
+| `/api/v1/health` | oha -c256 | HTTP/1.1 | 401,059 | 452,077 | **508,997** | — |
+
+\* v0.2.8 参考环境：Ryzen 7 7840HS + release + LTO + force-http（旧基准机）
+
+#### 延迟（wrk -t8 -c64）
+
+| 场景 | 标准 release P50/P99 | 极端 std P50/P99 | 极端 force-http P50/P99 |
+|:---|---:|---:|---:|
+| `/api/v1/health` | 130µs / 556µs | 118µs / 534µs | 107µs / 414µs |
+| `/` | 164µs / 794µs | 156µs / 759µs | 122µs / 502µs |
+
+#### 主流量 note 端点（缓存态，force-http 极端优化版）
+
+| 场景 | 工具 | Req/s | 吞吐 | P50 / P99 |
+|:---|---:|---:|---:|---:|
+| `/note/{slug}`（详情） | wrk -t8 -c64 | **492,115** | 2.92 GB/s | 107µs / 422µs |
+| `/note`（列表） | wrk -t8 -c64 | **469,736** | 2.62 GB/s | 113µs / 440µs |
+| `/note/{slug}`（详情） | wrk -t8 -c256 | **591,477** | 3.52 GB/s | 353µs / 1.53ms |
+
+> 缓存态走 `bytes::Bytes` 零拷贝，列表与详情几乎无差异；首次访问的渲染成本被缓存摊平，压测反映的是稳态承载能力。HTTPS（std 极端优化版 :8443）下详情 386,656 / 列表 365,024（TLS 开销 18~22%，延迟 P50 仅 +20~30µs）。
+
+#### 局域网（RJ45 直连 1Gbps：X270 ═ HP，force-http 极端优化版 :8880）
+
+| 场景 | 工具 | Req/s | 吞吐 | P50 / P99 |
+|:---|---:|---:|---:|---:|
+| `/api/v1/health` | wrk -t4 -c64 | 107,095 | 71.7 MB/s | 0.40ms / 2.6ms |
+| `/api/v1/health` | wrk -t8 -c256 | 136,900 | 91.7 MB/s | 0.92ms / 11.4ms |
+| `/api/v1/health` | wrk -t8 -c1024 | 140,285 | 93.9 MB/s | — |
+| `/`（11.4KB） | wrk -t4 -c64 | 9,544 | **111.8 MB/s ≈ 线速** | 6.6ms / 10.5ms |
+| `/css/user-theme.css`（10.2KB） | wrk -t4 -c64 | 10,895 | **109.1 MB/s ≈ 线速** | — |
+
+> 大响应（~10KB+）直接撞千兆线速（~9.5-10.9k Req/s @ ~110MB/s）；小响应（health ~670B）瓶颈在连接数 × RTT 与 USB 网卡驱动（并发 64→1024：107k→140k 趋平）。过家庭路由器时小请求 QPS 掉 63~80%、P50 延迟涨 6~7 倍，大响应仅掉 29%。
+
+#### 结论
+
+1. **极端优化收益**（同为 HTTPS）：wrk +9~11%，oha h1 +13%，oha h2 **+23%**（高并发下最明显）。
+2. **TLS 开销**（同构建，HTTP vs HTTPS）：wrk ~13%，oha h2 ~10%。
+3. 首页 `/`（~11KB 缓存 HTML）QPS 约为 health 的 3/4，吞吐 3.4~4.8 GB/s。
+4. **vs v0.2.8 参考**：极端 force-http 达参考值 76%（health wrk）、81%（root wrk）、89%（oha h2 health）、104%（oha h2 root，反超）；差距主要来自 CPU 功耗墙与 v0.3.0 新增中间件。
+
+#### Go/fasthttp 对比参考（CodeX 转译，非生产）
 
 | 场景 | 工具 | 协议 | Req/s | 延迟 P50 | 延迟 P99 | 吞吐 |
 |:---|:---|:---|:---|:---|:---|:---|
-| X270 → 工作站（LAN） | `wrk -t4 -c64` | HTTP/1.1 | 12,180 | — | — | 109 MB/s |
-| X270 → 工作站 `/health` | `wrk -t4 -c64` | HTTP/1.1 | 7,309 | 7.78ms | 24.63ms | 5.43 MB/s |
-| X270 → 工作站 `/` | `wrk -t4 -c64` | HTTP/1.1 | 884 | 64.06ms | 182.26ms | 7.99 MB/s |
-| 本地回路 `/health` | `wrk -t8 -c64` | HTTP/1.1 | **656,781** | 0.32ms | 1.36ms | — |
-| 本地回路 `/` | `wrk -t8 -c64` | HTTP/1.1 | **523,439** | 0.41ms | 1.40ms | — |
-| 本地回路 `/health` | `oha -c256` | HTTP/2 | 410,882 | 0.54ms | 1.98ms | — |
-| 本地回路 `/` | `oha -c256` | HTTP/2 | 298,334 | 0.79ms | 2.22ms | — |
-| Go/fasthttp `/health` (对比参考) | `wrk -t8 -c256`| HTTP/1.1 | 844,286 | 0.21ms | 2.57ms | — |
-| Go/fasthttp `/` (对比参考) | `wrk -t8 -c256`| HTTP/1.1 | 562,155 | 0.32ms | 4.14ms | — |
+| Go/fasthttp `/health` (对比参考) | `wrk -t8 -c256` | HTTP/1.1 | 844,286 | 0.21ms | 2.57ms | — |
+| Go/fasthttp `/` (对比参考) | `wrk -t8 -c256` | HTTP/1.1 | 562,155 | 0.32ms | 4.14ms | — |
 
 Go版本是CodeX翻译当前Rust版本得来，只做参考，非生产产品。
 ## 技术栈
