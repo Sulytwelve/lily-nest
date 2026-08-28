@@ -327,12 +327,18 @@
     /* 表格样式 (Tables) */
     /* 注意：不要给 table 设 display:block —— 那会让 thead/tbody 包进匿名表格盒，
        width:100% 失效、内表按内容收缩（表头条比容器窄），圆角/裁剪也会失效。
-       border-collapse 必须用 separate（spacing 0），圆角才能正确裁剪单元格背景。 */
+       border-collapse 必须用 separate（spacing 0），圆角才能正确裁剪单元格背景。
+       宽表由 .table-scroll 容器横向滚动（服务端渲染时包裹 <table>）。 */
+    .markdown-body .table-scroll {
+      margin: 2rem 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
     .markdown-body table {
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      margin: 2rem 0;
+      margin: 0;
       background: var(--md-sys-color-surface-container);
       border: 1px solid var(--md-sys-color-outline-variant);
       border-radius: 12px;

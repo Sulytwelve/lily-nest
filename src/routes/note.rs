@@ -356,6 +356,14 @@ async fn handle_note_detail(
                 // 后续的缓存写入与模板插入都使用这个消毒后的 html_output。
                 let html_output = ammonia::Builder::default().clean(&html_output).to_string();
 
+                // 将 GFM 表格包进 .table-scroll 滚动容器：表格按内容自然撑宽时可能
+                // 超过正文栏宽（th 不换行 / 代码单元格），由容器在栏宽处裁剪并保持
+                // 内部横向滚动，避免整页横向溢出。pulldown-cmark 不会输出嵌套表格，
+                // 字符串替换是安全的。
+                let html_output = html_output
+                    .replace("<table>", r#"<div class="table-scroll"><table>"#)
+                    .replace("</table>", "</table></div>");
+
                 let template = tokio::fs::read_to_string("templates/note_detail.html").await.unwrap_or_else(|_| {
                     "<!DOCTYPE html><html><body><article><h1>{{title}}</h1><div class='content'>{{content}}</div></article></body></html>".to_string()
                 });
