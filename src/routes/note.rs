@@ -346,7 +346,8 @@ async fn handle_note_detail(
                 options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
                 options.insert(pulldown_cmark::Options::ENABLE_TASKLISTS);
                 options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
-                options.insert(pulldown_cmark::Options::ENABLE_SMART_PUNCTUATION);
+                // 不启用 ENABLE_SMART_PUNCTUATION：技术内容中 -- / --- 常见
+                // （CLI 参数、表格分隔行残骸等），智能标点会将其转成 –/— 造成损坏。
                 let parser = Parser::new_ext(&markdown_body, options);
                 let mut html_output = String::new();
                 html::push_html(&mut html_output, parser);
