@@ -1,4 +1,6 @@
-use crate::model::{AssetsConfig, AuthSecrets, MarkdownConfig, NoteSummary, SecurityConfig};
+use crate::model::{
+    AssetsConfig, AuthSecrets, HtmlAppMeta, MarkdownConfig, NoteSummary, SecurityConfig,
+};
 use axum::http::HeaderValue;
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -118,6 +120,11 @@ pub struct AppState {
     pub note_index: RwLock<Vec<NoteSummary>>,
     pub note_html_cache: RwLock<HashMap<String, NoteHtmlCache>>,
     pub note_list_html_cache: RwLock<Option<Bytes>>,
+
+    // Admin-managed self-contained HTML apps. Mutations are serialized so the
+    // manifest and files cannot be changed concurrently by two requests.
+    pub html_apps: RwLock<Vec<HtmlAppMeta>>,
+    pub html_app_mutations: Mutex<()>,
 }
 
 #[derive(Clone)]

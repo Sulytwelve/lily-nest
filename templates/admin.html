@@ -34,6 +34,10 @@
                     梨记管理
                     <svg slot="icon" xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M320-240h320v-80H320v80Zm0-160h320v-80H320v80ZM240-80q-33 0-56.5-23.5T160-160v-640q0-33 23.5-56.5T240-880h320l240 240v480q0 33-23.5 56.5T720-80H240Zm280-520v-200H240v640h480v-440H520ZM240-800v200-200 640-640Z"/></svg>
                 </md-text-button>
+                <md-text-button id="navAppBtn">
+                    应用管理
+                    <svg slot="icon" xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M240-120q-50 0-85-35t-35-85v-480q0-50 35-85t85-35h480q50 0 85 35t35 85v480q0 50-35 85t-85 35H240Zm0-80h480q17 0 28.5-11.5T760-240v-400H200v400q0 17 11.5 28.5T240-200Zm0-520h480q17 0 28.5-11.5T760-760q0-17-11.5-28.5T720-800H240q-17 0-28.5 11.5T200-760q0 17 11.5 28.5T240-720Zm80 440 160-160-160-160-56 56 104 104-104 104 56 56Zm200 0h160v-80H520v80Z"/></svg>
+                </md-text-button>
             </div>
         </div>
         <div class="top-app-bar-right">
@@ -68,6 +72,19 @@
                 <div id="status-text" class="status-info">Ready</div>
             </div>
         </div>
+    </main>
+
+    <!-- VIEW 3: HTML App Management -->
+    <main id="viewApp" class="admin-content view-section" style="display: none;">
+        <div class="apps-toolbar">
+            <div>
+                <h2>单页应用</h2>
+                <p>上传自包含 HTML，发布到 /tools 或 /games。</p>
+            </div>
+            <md-filled-button id="addAppBtn">上传应用</md-filled-button>
+        </div>
+        <div id="appsStatus" class="status-info" aria-live="polite"></div>
+        <div id="appsContainer" class="apps-grid"></div>
     </main>
 
     <!-- VIEW 2: Note Management -->
@@ -106,6 +123,35 @@
             <md-outlined-text-field id="editExcerpt" label="摘要 (可选)" type="textarea" rows="2" class="w-full"></md-outlined-text-field>
             <textarea id="editContent" class="markdown-textarea" placeholder="在这里编写 Markdown 内容..."></textarea>
             <div id="noteEditorStatus" class="status-info">可直接粘贴剪贴板图片，自动上传并插入 Markdown</div>
+        </div>
+    </div>
+
+    <!-- Editor Overlay (for HTML App Management) -->
+    <div id="appEditorOverlay" class="editor-overlay">
+        <div class="editor-header">
+            <md-icon-button id="closeAppEditorBtn" title="关闭">
+                <md-icon>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </md-icon>
+            </md-icon-button>
+            <span class="editor-title" id="appEditorTitle">上传应用</span>
+            <md-filled-button id="saveAppBtn">保存</md-filled-button>
+        </div>
+        <div class="editor-body app-editor-body">
+            <label class="field-label" for="appCategory">分类</label>
+            <select id="appCategory" class="admin-select">
+                <option value="tools">工具（tools）</option>
+                <option value="games">游戏（games）</option>
+            </select>
+            <md-outlined-text-field id="appTitle" label="标题" type="text" class="w-full"></md-outlined-text-field>
+            <md-outlined-text-field id="appDescription" label="Description" type="textarea" rows="3" class="w-full"></md-outlined-text-field>
+            <md-outlined-text-field id="appSlug" label="Slug（可留空，自动取文件名）" type="text" supporting-text="仅使用小写英文、数字和连字符，例如 curl-to-code" class="w-full"></md-outlined-text-field>
+            <label class="html-file-picker" for="appHtmlFile">
+                <span>单页 HTML 文件</span>
+                <input id="appHtmlFile" type="file" accept=".html,.htm,text/html">
+            </label>
+            <div id="appFileHint" class="file-hint">请选择一个自包含的 HTML 文件。</div>
+            <div id="appEditorStatus" class="status-info" aria-live="polite"></div>
         </div>
     </div>
 

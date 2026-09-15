@@ -373,3 +373,71 @@ pub struct AdminNoteSaveRequest {
     pub excerpt: Option<String>,
     pub content: String,
 }
+
+/// 上传的自包含 HTML 小应用分类。分类同时决定公开 URL 与磁盘子目录。
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum HtmlAppCategory {
+    Tools,
+    Games,
+}
+
+impl HtmlAppCategory {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tools => "tools",
+            Self::Games => "games",
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HtmlAppMeta {
+    pub category: HtmlAppCategory,
+    pub slug: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    /// 用户上传时的原文件名，仅用于后台展示；磁盘文件始终使用 `{slug}.html`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct HtmlAppManifest {
+    pub apps: Vec<HtmlAppMeta>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdminHtmlAppCreateRequest {
+    pub category: HtmlAppCategory,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub filename: Option<String>,
+    pub html: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdminHtmlAppUpdateRequest {
+    #[serde(default)]
+    pub category: Option<HtmlAppCategory>,
+    #[serde(default)]
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub filename: Option<String>,
+    /// 缺失或 null 表示只更新元数据，保留已有 HTML。
+    #[serde(default)]
+    pub html: Option<String>,
+}
