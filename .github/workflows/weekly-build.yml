@@ -6,6 +6,10 @@ on:
     - cron: "0 4 * * 0"
   workflow_dispatch:
 
+concurrency:
+  group: weekly-build-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -16,10 +20,11 @@ jobs:
   build-linux:
     name: Build ${{ matrix.target }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         target:
           - armv7-unknown-linux-gnueabihf
@@ -45,55 +50,55 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-target-${{ matrix.target }}-
 
-      - name: Install Rust
+      - name: Install common packages
+        run: sudo apt-get update -y && sudo apt-get install -y build-essential pkg-config libssl-dev ca-certificates
+
+      - name: Install cross toolchain for armv7
+        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
+
+      - name: Install cross toolchain for aarch64
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Install Rust target
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+          rustup target add ${{ matrix.target }}
 
-      - name: Install cross
-        run: cargo install cross --git https://github.com/cross-rs/cross --locked
-
-      - name: Build release binary
-        run: cross build --release --locked --target "${{ matrix.target }}"
+      - name: Build release binary (cross compile)
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "true"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+          CARGO_PROFILE_RELEASE_PANIC: "abort"
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+        run: |
+          set -euo pipefail
+          # 使用 cargo 原生 cross-compile（依赖 .cargo/config.toml 中的 linker 配置）
+          cargo build --release --locked --target "${{ matrix.target }}"
 
       - name: Package distribution
         shell: bash
         run: |
           set -euo pipefail
-
           archive="lily-nest-${{ matrix.target }}.tar.xz"
           stage="package/lily-nest"
-
           mkdir -p "$stage" dist
-
           for directory in certs notes static templates; do
             mkdir -p "$stage/$directory"
-
             if [[ -d "$directory" ]]; then
               cp -a "$directory"/. "$stage/$directory"/
             fi
           done
-
-          # 自动包含根目录以后新增的 TOML。
-          # secrets.toml 即使被误加入仓库也绝不能打包。
-          find . \
-            -maxdepth 1 \
-            -type f \
-            -name '*.toml' \
-            ! -name 'Cargo.toml' \
-            ! -name 'secrets.toml' \
-            -exec cp '{}' "$stage/" ';'
-
-          install -m 755 \
-            "target/${{ matrix.target }}/release/lily-nest" \
-            "$stage/lily-nest"
-
+          find . -maxdepth 1 -type f -name '*.toml' ! -name 'Cargo.toml' ! -name 'secrets.toml' -exec cp '{}' "$stage/" ';'
+          install -m 755 "target/${{ matrix.target }}/release/lily-nest" "$stage/lily-nest"
           tar -C package -cJf "dist/$archive" lily-nest
-
-          (
-            cd dist
-            sha256sum "$archive" > "$archive.sha256"
-          )
+          ( cd dist; sha256sum "$archive" > "$archive.sha256" )
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
@@ -153,50 +158,34 @@ jobs:
           rustup target add x86_64-pc-windows-msvc
 
       - name: Build release binary
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "true"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+          CARGO_PROFILE_RELEASE_PANIC: "abort"
+          CARGO_PROFILE_RELEASE_STRIP: "true"
         run: cargo build --release --locked --target x86_64-pc-windows-msvc
 
       - name: Package distribution
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-
           $target = "x86_64-pc-windows-msvc"
           $archive = "lily-nest-$target.tar.xz"
           $stage = "package/lily-nest"
-
           New-Item -ItemType Directory -Force -Path $stage, "dist" | Out-Null
-
           foreach ($directory in @("certs", "notes", "static", "templates")) {
               $destination = Join-Path $stage $directory
               New-Item -ItemType Directory -Force -Path $destination | Out-Null
-
               if (Test-Path -LiteralPath $directory) {
-                  Get-ChildItem -LiteralPath $directory -Force |
-                      Copy-Item -Destination $destination -Recurse -Force
+                  Get-ChildItem -LiteralPath $directory -Force | Copy-Item -Destination $destination -Recurse -Force
               }
           }
-
-          Get-ChildItem -LiteralPath . -File -Filter "*.toml" |
-              Where-Object {
-                  $_.Name -ne "Cargo.toml" -and
-                  $_.Name -ne "secrets.toml"
-              } |
-              Copy-Item -Destination $stage -Force
-
-          Copy-Item `
-              -LiteralPath "target/$target/release/lily-nest.exe" `
-              -Destination "$stage/lily-nest.exe" `
-              -Force
-
+          Get-ChildItem -LiteralPath . -File -Filter "*.toml" | Where-Object { $_.Name -ne "Cargo.toml" -and $_.Name -ne "secrets.toml" } | Copy-Item -Destination $stage -Force
+          Copy-Item -LiteralPath "target/$target/release/lily-nest.exe" -Destination "$stage/lily-nest.exe" -Force
           tar.exe -cJf "dist/$archive" -C package lily-nest
-
-          if ($LASTEXITCODE -ne 0) {
-              throw "tar.exe failed with exit code $LASTEXITCODE"
-          }
-
+          if ($LASTEXITCODE -ne 0) { throw "tar.exe failed with exit code $LASTEXITCODE" }
           $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $archive" |
-              Set-Content "dist/$archive.sha256" -Encoding ascii
+          "$hash  $archive" | Set-Content "dist/$archive.sha256" -Encoding ascii
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
