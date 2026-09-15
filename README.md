@@ -103,6 +103,7 @@ Go版本是CodeX翻译当前Rust版本得来，只做参考，非生产产品。
 - **「梨记」轻量级笔记模块 (NEW!)**：无需数据库，文章全部以 `.md` 纯文本文件存储于 `notes/` 目录。
 - **笔记全文瞬时检索**：前端原生 JavaScript 提供零网络请求的标题、摘要与 `#标签` 秒级过滤。
 - **「梨记」图片上传**：后台编辑笔记时可直接粘贴/上传 PNG/JPG/GIF/WebP 图片，按魔数严格校验、原子写入 `static/images/notes/`，无需手动管理资源路径。
+- **单页应用管理**：后台上传自包含 HTML 到 `apps/tools/` 或 `apps/games/`，自动发布为 `/tools/{slug}`、`/games/{slug}`；`/apps` 提供分类目录，`?format=markdown` 供 Agent/爬虫读取。
 - 首页动态渲染（项目、团队成员、关于我、更新日志）
 - **HTML 片段模块化渲染**：采用 `templates/fragments/` 独立骨架片段，运行时动态拼装，免除 Rust 源码重编译
 - **强大的后台管理面板 (/admin)**：不仅支持在线编辑各项 TOML 配置，还内置了**在线 Markdown 编辑器**用于新建、修改、删除笔记文件，保存操作 100% 异步落盘。
@@ -126,7 +127,7 @@ Go版本是CodeX翻译当前Rust版本得来，只做参考，非生产产品。
 - 安全配置加载增强：release 模式缓存 security 配置，debug 模式仍会热加载；非法 origin 会跳过并记录错误日志
 - release 模式强制 HTTPS，无证书直接拒绝启动
 - 应用路由与资源路由已拆分：
-  - App router 提供 `/`、`/index.html` 重定向、`/admin`、`/admin/notes*`、`/api/v1/*` 和安全头中间件
+  - App router 提供 `/`、`/apps`、`/tools/{slug}`、`/games/{slug}`、`/admin`、`/admin/notes*`、`/api/v1/*` 和安全头中间件
   - 静态资源 router 提供 `/robots.txt`、`/favicon.ico`、`/css/*`、`/js/*` 等
 
 ## 项目结构
@@ -140,6 +141,10 @@ lily-nest/
 ├── about.toml                # 关于我列表配置
 ├── changelog.toml            # 更新日志配置
 ├── notes/                    # 「梨记」Markdown 笔记存储目录 (NEW!)
+├── apps/                     # 后台上传的运行时单页应用（gitignore）
+│   ├── manifest.toml         # 标题、description、分类与 slug
+│   ├── tools/                # 发布为 /tools/{slug}
+│   └── games/                # 发布为 /games/{slug}
 ├── .jwt_secret               # （不入库，自动生成，0600）JWT 签名密钥
 ├── .agent.pub                # （不入库，可选）Agent Ed25519 公钥，用于发文专线
 ├── certs/                    # SSL 证书目录
@@ -150,6 +155,8 @@ lily-nest/
 │   ├── routes/
 │   │   ├── mod.rs            
 │   │   ├── home.rs           # 首页路由（含 304 支持）
+│   │   ├── apps_catalog.rs   # /apps HTML/Markdown 目录与分类筛选
+│   │   ├── html_apps.rs      # 单页应用后台 CRUD、落盘与沙箱公开路由
 │   │   ├── note.rs           # 「梨记」前台路由 (列表与详情)
 │   │   ├── note_admin.rs     # 「梨记」后台与 Agent REST API 路由 (CRUD + 图片上传)
 │   │   ├── api.rs            # 公开 RESTful API 与认证、配置保存
@@ -166,6 +173,7 @@ lily-nest/
 ├── static/
 │   ├── css/
 │   │   ├── admin.css
+│   │   ├── apps.css          # /apps 目录页样式
 │   │   ├── user-theme.css
 │   │   └── note.css          # 梨记样式表
 │   ├── js/
@@ -178,6 +186,7 @@ lily-nest/
 ├── templates/
 │   ├── index.html            # 主页模板
 │   ├── admin.html            # 后台管理页面模板
+│   ├── apps.html             # 应用目录页模板
 │   ├── note.html             # 梨记列表页模板
 │   ├── note_detail.html      # 梨记详情页模板
 │   └── fragments/            # HTML 渲染片段模板目录
@@ -187,6 +196,10 @@ lily-nest/
 
 ## 管理后台 (/admin)
 项目内置了一个基于 Material Design 3 的管理后台，允许管理员直接在浏览器中修改站点内容。
+
+后台的“应用管理”可选择 `tools` / `games` 分类并上传不超过 2 MiB 的自包含 HTML。slug 可手工填写；留空时会从文件名规范化生成。公开应用使用独立 CSP 沙箱，允许内联 JavaScript，但不能取得站点同源身份、后台 JWT、联网或提交表单。
+
+应用接口仅接受管理员 JWT：`GET/POST /api/v1/admin/apps`，以及 `PUT/DELETE /api/v1/admin/apps/{category}/{slug}`。公开目录支持 `/apps?category=tools|games` 和 `/apps?format=markdown&category=tools|games`；HTML `<head>` 也包含对应的 Markdown alternate 链接。
 
 ### 1. 凭据存储：哈希 + 加盐，不再明文落盘
 
@@ -377,6 +390,7 @@ cargo run --release    # 或 cargo run（开发模式）
 - `about.toml`：关于我
 - `changelog.toml`：更新日志配置，用于首页时间轴展示
 - `static/`：静态资源（图片、CSS、JS、robots.txt 等）；`static/images/notes/` 为「梨记」上传图片目录（gitignored）
+- `apps/`：后台上传的工具/游戏 HTML 与 `manifest.toml`（gitignored，部署时需持久化）
 - `templates/`：前端页面及片段骨架 HTML 模板
 - `.jwt_secret`（不入库，自动生成，Unix 下 `chmod 0600`）：HS256 JWT 签名密钥；可用 `LILY_JWT_SECRET` 覆盖
 - `.agent.pub`（不入库，可选）：Agent Ed25519 公钥；可用 `LILY_AGENT_PUB_KEY` 覆盖

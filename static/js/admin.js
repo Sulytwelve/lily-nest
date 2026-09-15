@@ -488,20 +488,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // ====== Navigation & Tabs ======
     const viewConfig = document.getElementById('viewConfig');
     const viewNote = document.getElementById('viewNote');
+    const viewApp = document.getElementById('viewApp');
     let notesLoaded = false;
+    let appsLoaded = false;
 
     function switchTab(tabName) {
         if (tabName === 'config') {
             viewConfig.style.display = 'block';
             viewNote.style.display = 'none';
+            viewApp.style.display = 'none';
             replaceWithTonal('navIndexBtn');
             replaceWithText('navNoteBtn');
+            replaceWithText('navAppBtn');
         } else if (tabName === 'note') {
             viewConfig.style.display = 'none';
             viewNote.style.display = 'block';
+            viewApp.style.display = 'none';
             replaceWithTonal('navNoteBtn');
             replaceWithText('navIndexBtn');
+            replaceWithText('navAppBtn');
             if (!notesLoaded) loadNotes();
+        } else if (tabName === 'app') {
+            viewConfig.style.display = 'none';
+            viewNote.style.display = 'none';
+            viewApp.style.display = 'block';
+            replaceWithTonal('navAppBtn');
+            replaceWithText('navIndexBtn');
+            replaceWithText('navNoteBtn');
+            if (!appsLoaded) loadApps();
         }
     }
 
@@ -528,6 +542,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function bindNavEvents() {
         document.getElementById('navIndexBtn').addEventListener('click', () => switchTab('config'));
         document.getElementById('navNoteBtn').addEventListener('click', () => switchTab('note'));
+        document.getElementById('navAppBtn').addEventListener('click', () => switchTab('app'));
     }
     bindNavEvents();
 
@@ -807,4 +822,254 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // ====== HTML App Management ======
+    const appsContainer = document.getElementById('appsContainer');
+    const appsStatus = document.getElementById('appsStatus');
+    const addAppBtn = document.getElementById('addAppBtn');
+    const appEditorOverlay = document.getElementById('appEditorOverlay');
+    const closeAppEditorBtn = document.getElementById('closeAppEditorBtn');
+    const saveAppBtn = document.getElementById('saveAppBtn');
+    const appEditorTitle = document.getElementById('appEditorTitle');
+    const appCategory = document.getElementById('appCategory');
+    const appTitle = document.getElementById('appTitle');
+    const appDescription = document.getElementById('appDescription');
+    const appSlug = document.getElementById('appSlug');
+    const appHtmlFile = document.getElementById('appHtmlFile');
+    const appFileHint = document.getElementById('appFileHint');
+    const appEditorStatus = document.getElementById('appEditorStatus');
+
+    let editingApp = null;
+    let selectedAppHtml = null;
+    let selectedAppFilename = '';
+
+    function setAppsStatus(message, isError = false) {
+        appsStatus.textContent = message;
+        appsStatus.style.color = isError
+            ? 'var(--md-sys-color-error)'
+            : 'var(--md-sys-color-on-surface-variant)';
+    }
+
+    function setAppEditorStatus(message, isError = false) {
+        appEditorStatus.textContent = message;
+        appEditorStatus.style.color = isError
+            ? 'var(--md-sys-color-error)'
+            : 'var(--md-sys-color-on-surface-variant)';
+    }
+
+    function slugFromFilename(filename) {
+        return filename
+            .replace(/\.[^.]+$/, '')
+            .normalize('NFKD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .replace(/-{2,}/g, '-');
+    }
+
+    function readHtmlFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+            reader.readAsText(file);
+        });
+    }
+
+    async function responseError(response, fallback) {
+        try {
+            const data = await response.json();
+            return data.error || data.message || fallback;
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    async function loadApps() {
+        setAppsStatus('正在加载应用...');
+        try {
+            const response = await apiFetch('/api/v1/admin/apps');
+            if (!response.ok) throw new Error(await responseError(response, '加载应用失败'));
+            const data = await response.json();
+            const apps = Array.isArray(data) ? data : (data.apps || []);
+            appsLoaded = true;
+            renderApps(apps);
+            setAppsStatus(apps.length ? '' : '还没有应用，点击“上传应用”开始。');
+        } catch (error) {
+            if (error.message !== 'Unauthorized') setAppsStatus(error.message || '加载应用失败', true);
+        }
+    }
+
+    function renderApps(apps) {
+        appsContainer.replaceChildren();
+
+        apps.forEach(app => {
+            const category = app.category === 'games' ? 'games' : 'tools';
+            const card = document.createElement('article');
+            card.className = 'admin-app-card';
+
+            const badge = document.createElement('span');
+            badge.className = `app-category app-category-${category}`;
+            badge.textContent = category === 'games' ? '游戏' : '工具';
+
+            const title = document.createElement('h3');
+            title.textContent = app.title || app.slug || '未命名应用';
+
+            const path = document.createElement('div');
+            path.className = 'app-path';
+            path.textContent = `/${category}/${app.slug || ''}`;
+
+            const description = document.createElement('p');
+            description.className = 'app-description';
+            description.textContent = app.description || '暂无描述';
+
+            const actions = document.createElement('div');
+            actions.className = 'admin-app-actions';
+
+            const previewBtn = document.createElement('md-text-button');
+            previewBtn.textContent = '预览';
+            previewBtn.addEventListener('click', () => {
+                const url = app.url || `/${category}/${encodeURIComponent(app.slug || '')}`;
+                window.open(url, '_blank', 'noopener,noreferrer');
+            });
+
+            const deleteBtn = document.createElement('md-outlined-button');
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.textContent = '删除';
+            deleteBtn.addEventListener('click', () => deleteApp(app));
+
+            const editBtn = document.createElement('md-filled-tonal-button');
+            editBtn.textContent = '编辑';
+            editBtn.addEventListener('click', () => openAppEditor(app));
+
+            actions.append(previewBtn, deleteBtn, editBtn);
+            card.append(badge, title, path, description, actions);
+            appsContainer.appendChild(card);
+        });
+    }
+
+    function openAppEditor(app = null) {
+        editingApp = app;
+        selectedAppHtml = null;
+        selectedAppFilename = app?.filename || '';
+        appHtmlFile.value = '';
+        appCategory.value = app?.category === 'games' ? 'games' : 'tools';
+        appTitle.value = app?.title || '';
+        appDescription.value = app?.description || '';
+        appSlug.value = app?.slug || '';
+        appCategory.disabled = Boolean(app);
+        appSlug.disabled = Boolean(app);
+        appEditorTitle.textContent = app ? '编辑应用' : '上传应用';
+        appFileHint.textContent = app
+            ? `当前文件：${app?.filename || `${app.slug}.html`}。不选择新文件将保留现有 HTML。`
+            : '请选择一个自包含的 HTML 文件。';
+        setAppEditorStatus('');
+        appEditorOverlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeAppEditor() {
+        appEditorOverlay.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    async function deleteApp(app) {
+        const category = app.category === 'games' ? 'games' : 'tools';
+        if (!confirm(`确定要删除 /${category}/${app.slug} 吗？此操作不可撤销。`)) return;
+
+        try {
+            const response = await apiFetch(`/api/v1/admin/apps/${category}/${encodeURIComponent(app.slug)}`, {
+                method: 'DELETE',
+            });
+            if (!response.ok) throw new Error(await responseError(response, '删除应用失败'));
+            appsLoaded = false;
+            await loadApps();
+        } catch (error) {
+            if (error.message !== 'Unauthorized') setAppsStatus(error.message || '删除应用失败', true);
+        }
+    }
+
+    appHtmlFile.addEventListener('change', async () => {
+        const file = appHtmlFile.files && appHtmlFile.files[0];
+        selectedAppHtml = null;
+        selectedAppFilename = '';
+        if (!file) return;
+
+        if (!/\.html?$/i.test(file.name)) {
+            appHtmlFile.value = '';
+            setAppEditorStatus('请选择 .html 或 .htm 文件。', true);
+            return;
+        }
+        if (file.size > 2 * 1024 * 1024) {
+            appHtmlFile.value = '';
+            setAppEditorStatus('HTML 文件不能超过 2 MiB。', true);
+            return;
+        }
+
+        try {
+            selectedAppHtml = await readHtmlFile(file);
+            selectedAppFilename = file.name;
+            if (!editingApp && !appSlug.value.trim()) appSlug.value = slugFromFilename(file.name);
+            if (!editingApp && !appTitle.value.trim()) appTitle.value = file.name.replace(/\.[^.]+$/, '');
+            appFileHint.textContent = `${file.name} · ${file.size.toLocaleString()} 字节`;
+            setAppEditorStatus(selectedAppHtml ? '文件已读取，保存后即可访问。' : 'HTML 文件为空。', !selectedAppHtml);
+        } catch (error) {
+            setAppEditorStatus('读取 HTML 文件失败。', true);
+        }
+    });
+
+    addAppBtn.addEventListener('click', () => openAppEditor());
+    closeAppEditorBtn.addEventListener('click', closeAppEditor);
+
+    saveAppBtn.addEventListener('click', async () => {
+        const title = appTitle.value.trim();
+        const description = appDescription.value.trim();
+        const slug = appSlug.value.trim();
+        const category = appCategory.value;
+
+        if (!title) {
+            setAppEditorStatus('请填写标题。', true);
+            return;
+        }
+        if (!editingApp && !selectedAppHtml) {
+            setAppEditorStatus('请选择有效的 HTML 文件。', true);
+            return;
+        }
+        if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+            setAppEditorStatus('Slug 只能包含小写英文、数字和单个连字符。', true);
+            return;
+        }
+
+        const identityCategory = editingApp?.category || category;
+        const identitySlug = editingApp?.slug || slug;
+        const url = editingApp
+            ? `/api/v1/admin/apps/${identityCategory}/${encodeURIComponent(identitySlug)}`
+            : '/api/v1/admin/apps';
+        const payload = {
+            category: identityCategory,
+            title,
+            description,
+            slug: identitySlug,
+            filename: selectedAppFilename || editingApp?.filename || null,
+            html: selectedAppHtml,
+        };
+
+        saveAppBtn.disabled = true;
+        setAppEditorStatus('正在保存...');
+        try {
+            const response = await apiFetch(url, {
+                method: editingApp ? 'PUT' : 'POST',
+                body: JSON.stringify(payload),
+            });
+            if (!response.ok) throw new Error(await responseError(response, '保存应用失败'));
+            closeAppEditor();
+            appsLoaded = false;
+            await loadApps();
+        } catch (error) {
+            if (error.message !== 'Unauthorized') setAppEditorStatus(error.message || '保存应用失败', true);
+        } finally {
+            saveAppBtn.disabled = false;
+        }
+    });
 });

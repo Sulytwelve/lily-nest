@@ -9,6 +9,8 @@
 /static/images/*
 # 笔记粘贴上传的图片（用户内容，不入库；由 /images/notes/... 提供访问）
 /static/images/notes/
+# 后台上传的单页应用及其 manifest 属于运行时内容
+/apps/
 /static/Bing*
 /static/favicon.ico
 /static/robots.txt
