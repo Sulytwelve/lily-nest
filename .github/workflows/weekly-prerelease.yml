@@ -1,0 +1,102 @@
+name: Weekly pre-release
+
+on:
+  schedule:
+    # 每周日 04:00 UTC，即新加坡时间 12:00
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: weekly-prerelease
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-x86_64:
+    uses: ./.github/workflows/build-x86_64-linux.yml
+
+  build-armv7:
+    uses: ./.github/workflows/build-armv7-linux.yml
+
+  build-aarch64:
+    uses: ./.github/workflows/build-aarch64-linux.yml
+
+  publish:
+    name: Publish weekly pre-release
+    needs:
+      - build-x86_64
+      - build-armv7
+      - build-aarch64
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Download all packaged artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: lily-nest-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          targets=(
+            x86_64-unknown-linux-gnu
+            armv7-unknown-linux-gnueabihf
+            aarch64-unknown-linux-gnu
+          )
+          for target in "${targets[@]}"; do
+            test -s "dist/lily-nest-${target}.tar.xz"
+            test -s "dist/lily-nest-${target}.tar.xz.sha256"
+          done
+          (cd dist && sha256sum --check ./*.sha256)
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          {
+            echo "Automated weekly build from commit \`${GITHUB_SHA}\`."
+            echo
+            echo "Included targets:"
+            echo "- \`x86_64-unknown-linux-gnu\`"
+            echo "- \`armv7-unknown-linux-gnueabihf\`"
+            echo "- \`aarch64-unknown-linux-gnu\`"
+            echo
+            echo "Each archive has a matching SHA-256 checksum file."
+          } > release-notes.md
+
+      - name: Create or update rolling pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="Weekly build $(date -u +%Y-%m-%d)"
+          if gh release view weekly-build --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh api \
+              --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/tags/weekly-build" \
+              -f sha="$GITHUB_SHA" \
+              -F force=true
+            gh release upload weekly-build dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release edit weekly-build \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --notes-file release-notes.md \
+              --prerelease \
+              --latest=false
+          else
+            gh release create weekly-build dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$title" \
+              --notes-file release-notes.md \
+              --prerelease \
+              --latest=false
+          fi

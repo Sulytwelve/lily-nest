@@ -1,0 +1,80 @@
+name: Build AArch64 Linux
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: aarch64-unknown-linux-gnu
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Cache Cargo files
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-cargo-${{ env.TARGET }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            linux-cargo-${{ env.TARGET }}-
+
+      - name: Install AArch64 linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Install Rust target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add "$TARGET"
+
+      - name: Build release binary
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "true"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+          CARGO_PROFILE_RELEASE_PANIC: "abort"
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+        run: cargo build --release --locked --target "$TARGET"
+
+      - name: Package distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="lily-nest-${TARGET}.tar.xz"
+          stage="package/lily-nest"
+          mkdir -p "$stage" dist
+          for directory in certs notes static templates; do
+            mkdir -p "$stage/$directory"
+            if [[ -d "$directory" ]]; then
+              cp -a "$directory"/. "$stage/$directory"/
+            fi
+          done
+          find . -maxdepth 1 -type f -name '*.toml' ! -name 'Cargo.toml' ! -name 'secrets.toml' -exec cp '{}' "$stage/" ';'
+          install -m 755 "target/${TARGET}/release/lily-nest" "$stage/lily-nest"
+          tar -C package -cJf "dist/$archive" lily-nest
+          (cd dist && sha256sum "$archive" > "$archive.sha256")
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lily-nest-${{ env.TARGET }}
+          path: |
+            dist/lily-nest-${{ env.TARGET }}.tar.xz
+            dist/lily-nest-${{ env.TARGET }}.tar.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
