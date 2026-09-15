@@ -1,0 +1,192 @@
+name: Weekly builds
+
+on:
+  schedule:
+    # 每周日 04:00 UTC，即新加坡时间 12:00
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - armv7-unknown-linux-gnueabihf
+          - aarch64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+
+      - name: Build release binary
+        run: cross build --release --locked --target "${{ matrix.target }}"
+
+      - name: Package distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          archive="lily-nest-${{ matrix.target }}.tar.xz"
+          stage="package/lily-nest"
+
+          mkdir -p "$stage" dist
+
+          for directory in certs notes static templates; do
+            mkdir -p "$stage/$directory"
+
+            if [[ -d "$directory" ]]; then
+              cp -a "$directory"/. "$stage/$directory"/
+            fi
+          done
+
+          # 自动包含根目录以后新增的 TOML。
+          # secrets.toml 即使被误加入仓库也绝不能打包。
+          find . \
+            -maxdepth 1 \
+            -type f \
+            -name '*.toml' \
+            ! -name 'Cargo.toml' \
+            ! -name 'secrets.toml' \
+            -exec cp '{}' "$stage/" ';'
+
+          install -m 755 \
+            "target/${{ matrix.target }}/release/lily-nest" \
+            "$stage/lily-nest"
+
+          tar -C package -cJf "dist/$archive" lily-nest
+
+          (
+            cd dist
+            sha256sum "$archive" > "$archive.sha256"
+          )
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lily-nest-${{ matrix.target }}
+          path: |
+            dist/lily-nest-${{ matrix.target }}.tar.xz
+            dist/lily-nest-${{ matrix.target }}.tar.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Create or update pre-release
+        uses: peter-evans/create-or-update-release@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: weekly-build
+          release_name: "Weekly build - ${{ github.repository }}"
+          body_path: README.md
+          draft: false
+          prerelease: true
+          assets: |
+            dist/lily-nest-${{ matrix.target }}.tar.xz
+            dist/lily-nest-${{ matrix.target }}.tar.xz.sha256
+          replace: true
+
+  build-windows:
+    name: Build x86_64-pc-windows-msvc
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Build release binary
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+
+      - name: Package distribution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $target = "x86_64-pc-windows-msvc"
+          $archive = "lily-nest-$target.tar.xz"
+          $stage = "package/lily-nest"
+
+          New-Item -ItemType Directory -Force -Path $stage, "dist" | Out-Null
+
+          foreach ($directory in @("certs", "notes", "static", "templates")) {
+              $destination = Join-Path $stage $directory
+              New-Item -ItemType Directory -Force -Path $destination | Out-Null
+
+              if (Test-Path -LiteralPath $directory) {
+                  Get-ChildItem -LiteralPath $directory -Force |
+                      Copy-Item -Destination $destination -Recurse -Force
+              }
+          }
+
+          Get-ChildItem -LiteralPath . -File -Filter "*.toml" |
+              Where-Object {
+                  $_.Name -ne "Cargo.toml" -and
+                  $_.Name -ne "secrets.toml"
+              } |
+              Copy-Item -Destination $stage -Force
+
+          Copy-Item `
+              -LiteralPath "target/$target/release/lily-nest.exe" `
+              -Destination "$stage/lily-nest.exe" `
+              -Force
+
+          tar.exe -cJf "dist/$archive" -C package lily-nest
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "tar.exe failed with exit code $LASTEXITCODE"
+          }
+
+          $hash = (Get-FileHash "dist/$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archive" |
+              Set-Content "dist/$archive.sha256" -Encoding ascii
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lily-nest-x86_64-pc-windows-msvc
+          path: |
+            dist/lily-nest-x86_64-pc-windows-msvc.tar.xz
+            dist/lily-nest-x86_64-pc-windows-msvc.tar.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Create or update pre-release
+        uses: peter-evans/create-or-update-release@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: weekly-build
+          release_name: "Weekly build - ${{ github.repository }}"
+          body_path: README.md
+          draft: false
+          prerelease: true
+          assets: |
+            dist/lily-nest-x86_64-pc-windows-msvc.tar.xz
+            dist/lily-nest-x86_64-pc-windows-msvc.tar.xz.sha256
+          replace: true
