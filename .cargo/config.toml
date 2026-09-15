@@ -9,16 +9,3 @@ ar = "aarch64-linux-gnu-ar"
 [target.x86_64-unknown-linux-gnu]
 linker = "gcc"
 ar = "ar"
-
-# MSVC note:
-# - 真正的 x86_64-pc-windows-msvc 链接器 (MSVC linker) 只存在在 Windows/MSVC toolchain 环境中，
-#   无法在标准 Ubuntu runner 上使用（不能把 MSVC 链接器搬到 Linux）。
-# - 如果你确实需要在 Linux 上交叉编译生成 Windows 可执行，通常选择 windows-gnu triple
-#   (x86_64-pc-windows-gnu) + mingw-w64 linker；或者使用 cross（容器化）来做完整隔离。
-#
-# [target.x86_64-pc-windows-msvc]
-# 当在 windows-latest runner 上做 x86_64-pc-windows-msvc 构建时，不需要在这里指定 linker。
-# 若你想尝试在 Linux 上用 mingw 交叉生成 Windows 可执行（GNU ABI），请使用 x86_64-pc-windows-gnu triple。
-# 以下条目示范如何为 windows-gnu 指定 mingw 链接器（可选）：
-# linker = "x86_64-w64-mingw32-gcc"
-# ar = "x86_64-w64-mingw32-ar"
