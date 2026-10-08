@@ -318,6 +318,7 @@ mod tests {
             title: title.into(),
             description: description.into(),
             filename: None,
+            bundle: None,
             created_at: String::new(),
             updated_at: String::new(),
             url: format!("/{}/demo", category.as_str()),

@@ -1,3 +1,4 @@
+use super::app_bundle;
 use crate::{
     model::{
         AdminHtmlAppCreateRequest, AdminHtmlAppUpdateRequest, HtmlAppCategory, HtmlAppManifest,
@@ -8,9 +9,9 @@ use crate::{
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, Request, State},
-    http::{HeaderName, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::get,
 };
 use chrono::Utc;
@@ -22,18 +23,22 @@ use std::{
 };
 use tokio::io::AsyncWriteExt;
 
-const APPS_ROOT: &str = "apps";
+pub(super) const APPS_ROOT: &str = "apps";
 const MANIFEST_PATH: &str = "apps/manifest.toml";
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
 // JSON may encode a single input byte as a six-byte `\u00xx` escape. The
 // decoded HTML is still independently capped at MAX_HTML_BYTES below.
-const MAX_UPLOAD_BODY_BYTES: usize = MAX_HTML_BYTES * 6 + 64 * 1024;
+const MAX_UPLOAD_BODY_BYTES: usize = app_bundle::MAX_BUNDLE_BYTES * 6 + 128 * 1024;
 const APP_CSP: &str = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'";
 
 pub fn public_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/tools/{slug}", get(serve_tool))
         .route("/games/{slug}", get(serve_game))
+        .route("/tools/{slug}/", get(serve_tool_entry))
+        .route("/games/{slug}/", get(serve_game_entry))
+        .route("/tools/{slug}/{*path}", get(serve_tool_file))
+        .route("/games/{slug}/{*path}", get(serve_game_file))
         .layer(middleware::from_fn(app_security_headers))
         .with_state(state)
 }
@@ -48,6 +53,22 @@ pub fn admin_router(state: Arc<AppState>) -> Router {
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::middlewares::admin_auth_middleware,
+        ))
+        .layer(DefaultBodyLimit::max(MAX_UPLOAD_BODY_BYTES))
+        .with_state(state)
+}
+
+/// Application-only endpoints using the authorized Agent Ed25519 keys.
+pub fn agent_router(state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/api/v1/apps", get(list_apps).post(create_app))
+        .route(
+            "/api/v1/apps/{category}/{slug}",
+            axum::routing::put(update_app).delete(delete_app),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::middlewares::note_auth_middleware,
         ))
         .layer(DefaultBodyLimit::max(MAX_UPLOAD_BODY_BYTES))
         .with_state(state)
@@ -83,7 +104,15 @@ pub async fn load_manifest() -> Vec<HtmlAppMeta> {
                     );
                     continue;
                 }
-                let path = app_path(app.category, &app.slug);
+                let path = match &app.bundle {
+                    Some(bundle) => match app_bundle::directory(app.category, &app.slug, bundle) {
+                        Some(path) if bundle.files.iter().any(|p| p == "index.html") => {
+                            path.join("index.html")
+                        }
+                        _ => continue,
+                    },
+                    None => app_path(app.category, &app.slug),
+                };
                 recover_backup(&path).await;
                 if !tokio::fs::metadata(&path)
                     .await
@@ -92,7 +121,7 @@ pub async fn load_manifest() -> Vec<HtmlAppMeta> {
                     tracing::warn!("ignoring app with missing HTML: {}", path.display());
                     continue;
                 }
-                app.url = app_url(app.category, &app.slug);
+                app.url = public_url(&app);
                 apps.push(app);
             }
             sort_apps(&mut apps);
@@ -120,9 +149,10 @@ async fn create_app(
     if let Err(message) = validate_text_fields(&payload.title, &payload.description) {
         return api_error(StatusCode::BAD_REQUEST, message);
     }
-    if let Err(message) = validate_html(&payload.html) {
-        return api_error(StatusCode::BAD_REQUEST, message);
-    }
+    let content = match validate_content(payload.html, payload.files, true) {
+        Ok(content) => content.unwrap(),
+        Err(message) => return api_error(StatusCode::BAD_REQUEST, message),
+    };
     let slug = match resolve_slug(payload.slug.as_deref(), payload.filename.as_deref()) {
         Ok(slug) => slug,
         Err(message) => return api_error(StatusCode::BAD_REQUEST, message),
@@ -141,12 +171,13 @@ async fn create_app(
     }
 
     let now = Utc::now().to_rfc3339();
-    let meta = HtmlAppMeta {
+    let mut meta = HtmlAppMeta {
         category: payload.category,
         slug: slug.clone(),
         title: payload.title.trim().to_string(),
         description: payload.description.trim().to_string(),
         filename: clean_filename(payload.filename),
+        bundle: None,
         created_at: now.clone(),
         updated_at: now,
         url: app_url(payload.category, &slug),
@@ -163,16 +194,30 @@ async fn create_app(
             return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to inspect HTML");
         }
     };
-    if let Err(error) = atomic_write(&path, payload.html.as_bytes()).await {
-        tracing::error!("failed to write {}: {error}", path.display());
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to save HTML");
+    match content {
+        AppContent::Html(html) => {
+            if let Err(error) = atomic_write(&path, html.as_bytes()).await {
+                tracing::error!("failed to save HTML: {error}");
+                return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to save HTML");
+            }
+        }
+        AppContent::Bundle(files) => match app_bundle::stage(meta.category, &slug, files).await {
+            Ok(bundle) => meta.bundle = Some(bundle),
+            Err(error) => {
+                tracing::error!("failed to stage bundle: {error}");
+                return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to save bundle");
+            }
+        },
     }
+    meta.url = public_url(&meta);
 
     apps.push(meta.clone());
     sort_apps(&mut apps);
     if let Err(error) = save_manifest(&apps).await {
         apps.retain(|app| !(app.category == meta.category && app.slug == meta.slug));
-        if let Some(previous_orphan) = previous_orphan {
+        if let Some(bundle) = &meta.bundle {
+            let _ = app_bundle::remove(meta.category, &slug, bundle).await;
+        } else if let Some(previous_orphan) = previous_orphan {
             let _ = atomic_write(&path, &previous_orphan).await;
         } else {
             let _ = tokio::fs::remove_file(&path).await;
@@ -201,11 +246,10 @@ async fn update_app(
     {
         return api_error(StatusCode::BAD_REQUEST, "category and slug are immutable");
     }
-    if let Some(html) = payload.html.as_deref()
-        && let Err(message) = validate_html(html)
-    {
-        return api_error(StatusCode::BAD_REQUEST, message);
-    }
+    let content = match validate_content(payload.html, payload.files, false) {
+        Ok(content) => content,
+        Err(message) => return api_error(StatusCode::BAD_REQUEST, message),
+    };
 
     let _mutation = state.html_app_mutations.lock().await;
     let mut apps = state.html_apps.write().await;
@@ -234,9 +278,14 @@ async fn update_app(
     updated.updated_at = Utc::now().to_rfc3339();
 
     let path = app_path(category, &slug);
-    let previous_html = if payload.html.is_some() {
+    let previous_html = if matches!(&content, Some(AppContent::Html(_))) {
         match tokio::fs::read(&path).await {
             Ok(contents) => Some(contents),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound && updated.bundle.is_some() =>
+            {
+                None
+            }
             Err(error) => {
                 tracing::error!("failed to read {} before update: {error}", path.display());
                 return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to read HTML");
@@ -245,25 +294,61 @@ async fn update_app(
     } else {
         None
     };
-    if let Some(html) = payload.html {
-        if let Err(error) = atomic_write(&path, html.as_bytes()).await {
-            tracing::error!("failed to update {}: {error}", path.display());
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to save HTML");
+    let previous_bundle = updated.bundle.clone();
+    let changed_content = content.is_some();
+    match content {
+        Some(AppContent::Html(html)) => {
+            if let Err(error) = atomic_write(&path, html.as_bytes()).await {
+                tracing::error!("failed to update HTML: {error}");
+                return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to save HTML");
+            }
+            updated.bundle = None;
         }
+        Some(AppContent::Bundle(files)) => match app_bundle::stage(category, &slug, files).await {
+            Ok(bundle) => updated.bundle = Some(bundle),
+            Err(error) => {
+                tracing::error!("failed to stage bundle: {error}");
+                return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to save bundle");
+            }
+        },
+        None => {}
     }
+    updated.url = public_url(&updated);
+
     let old = std::mem::replace(&mut apps[index], updated.clone());
     if let Err(error) = save_manifest(&apps).await {
         apps[index] = old;
-        if let Some(previous_html) = previous_html {
-            if let Err(rollback_error) = atomic_write(&path, &previous_html).await {
-                tracing::error!(
-                    "failed to roll back {} after manifest error: {rollback_error}",
-                    path.display()
-                );
+        if changed_content {
+            if let Some(bundle) = &updated.bundle {
+                let _ = app_bundle::remove(category, &slug, bundle).await;
+            } else if previous_html.is_none() {
+                let _ = tokio::fs::remove_file(&path).await;
             }
+        }
+        if let Some(previous_html) = previous_html
+            && let Err(rollback_error) = atomic_write(&path, &previous_html).await
+        {
+            tracing::error!(
+                "failed to roll back {} after manifest error: {rollback_error}",
+                path.display()
+            );
         }
         tracing::error!("failed to update app manifest: {error}");
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to save manifest");
+    }
+    if changed_content
+        && let Some(bundle) = &previous_bundle
+        && let Err(error) = app_bundle::remove(category, &slug, bundle).await
+    {
+        tracing::warn!("failed to remove obsolete revision: {error}");
+    }
+    if changed_content
+        && updated.bundle.is_some()
+        && previous_bundle.is_none()
+        && let Err(error) = tokio::fs::remove_file(&path).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!("failed to clean up converted single HTML: {error}");
     }
     api_response(Json(updated).into_response())
 }
@@ -291,7 +376,11 @@ async fn delete_app(
         return api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to save manifest");
     }
     let path = app_path(category, &slug);
-    match tokio::fs::remove_file(&path).await {
+    let deletion = match &removed.bundle {
+        Some(bundle) => app_bundle::remove(category, &slug, bundle).await,
+        None => tokio::fs::remove_file(&path).await,
+    };
+    match deletion {
         Ok(()) => api_response(StatusCode::NO_CONTENT.into_response()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             api_response(StatusCode::NO_CONTENT.into_response())
@@ -307,34 +396,209 @@ async fn delete_app(
     }
 }
 
-async fn serve_tool(state: State<Arc<AppState>>, Path(slug): Path<String>) -> Response {
-    serve_app(state, HtmlAppCategory::Tools, slug).await
+enum AppContent {
+    Html(String),
+    Bundle(std::collections::BTreeMap<String, Vec<u8>>),
 }
-
-async fn serve_game(state: State<Arc<AppState>>, Path(slug): Path<String>) -> Response {
-    serve_app(state, HtmlAppCategory::Games, slug).await
+fn validate_content(
+    html: Option<String>,
+    files: Option<Vec<crate::model::HtmlAppFile>>,
+    required: bool,
+) -> Result<Option<AppContent>, &'static str> {
+    match (html, files) {
+        (Some(_), Some(_)) => Err("provide html or files, not both"),
+        (Some(html), None) => {
+            validate_html(&html)?;
+            Ok(Some(AppContent::Html(html)))
+        }
+        (None, Some(files)) => Ok(Some(AppContent::Bundle(app_bundle::decode(files)?))),
+        (None, None) if required => Err("html or files is required"),
+        _ => Ok(None),
+    }
+}
+fn public_url(meta: &HtmlAppMeta) -> String {
+    format!(
+        "{}{}",
+        app_url(meta.category, &meta.slug),
+        if meta.bundle.is_some() { "/" } else { "" }
+    )
+}
+async fn serve_tool(
+    state: State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    request: Request,
+) -> Response {
+    serve_app(
+        state,
+        HtmlAppCategory::Tools,
+        slug,
+        None,
+        false,
+        app_request_headers(request),
+    )
+    .await
+}
+async fn serve_game(
+    state: State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    request: Request,
+) -> Response {
+    serve_app(
+        state,
+        HtmlAppCategory::Games,
+        slug,
+        None,
+        false,
+        app_request_headers(request),
+    )
+    .await
+}
+async fn serve_tool_entry(
+    state: State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    request: Request,
+) -> Response {
+    serve_app(
+        state,
+        HtmlAppCategory::Tools,
+        slug,
+        None,
+        true,
+        app_request_headers(request),
+    )
+    .await
+}
+async fn serve_game_entry(
+    state: State<Arc<AppState>>,
+    Path(slug): Path<String>,
+    request: Request,
+) -> Response {
+    serve_app(
+        state,
+        HtmlAppCategory::Games,
+        slug,
+        None,
+        true,
+        app_request_headers(request),
+    )
+    .await
+}
+async fn serve_tool_file(
+    state: State<Arc<AppState>>,
+    Path((slug, path)): Path<(String, String)>,
+    request: Request,
+) -> Response {
+    serve_app(
+        state,
+        HtmlAppCategory::Tools,
+        slug,
+        Some(path),
+        true,
+        app_request_headers(request),
+    )
+    .await
+}
+async fn serve_game_file(
+    state: State<Arc<AppState>>,
+    Path((slug, path)): Path<(String, String)>,
+    request: Request,
+) -> Response {
+    serve_app(
+        state,
+        HtmlAppCategory::Games,
+        slug,
+        Some(path),
+        true,
+        app_request_headers(request),
+    )
+    .await
+}
+fn app_request_headers(request: Request) -> HeaderMap {
+    let (parts, _) = request.into_parts();
+    let mut headers = parts.headers;
+    // HTTP/2 uses :authority instead of Host. Prefer the URI authority so the
+    // app resource CSP also works on direct HTTPS/HTTP2 deployments.
+    if let Some(authority) = parts.uri.authority()
+        && let Ok(host) = HeaderValue::from_str(authority.as_str())
+    {
+        headers.insert(header::HOST, host);
+    }
+    headers
 }
 
 async fn serve_app(
     State(state): State<Arc<AppState>>,
     category: HtmlAppCategory,
     slug: String,
+    path: Option<String>,
+    trailing_slash: bool,
+    headers: HeaderMap,
 ) -> Response {
-    if !is_valid_slug(&slug)
-        || !state
-            .html_apps
-            .read()
-            .await
-            .iter()
-            .any(|app| app.category == category && app.slug == slug)
-    {
+    if !is_valid_slug(&slug) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let bytes = match tokio::fs::read(app_path(category, &slug)).await {
-        Ok(bytes) => bytes,
-        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    let app = state
+        .html_apps
+        .read()
+        .await
+        .iter()
+        .find(|app| app.category == category && app.slug == slug)
+        .cloned();
+    let Some(app) = app else {
+        return StatusCode::NOT_FOUND.into_response();
     };
-    app_html_response(bytes)
+    if let Some(bundle) = &app.bundle {
+        if !trailing_slash {
+            return Redirect::permanent(&public_url(&app)).into_response();
+        }
+        let path = path.as_deref().unwrap_or("index.html");
+        let Some(bytes) = app_bundle::read(category, &slug, bundle, path).await else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let mut response = bytes.into_response();
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static(app_bundle::mime(path).unwrap()),
+        );
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+        apply_app_security_headers(&mut response);
+        if let Some(csp) = bundle_csp(&headers, category, &slug) {
+            response
+                .headers_mut()
+                .insert(header::CONTENT_SECURITY_POLICY, csp);
+        }
+        response.headers_mut().insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("*"),
+        );
+        response.headers_mut().insert(
+            HeaderName::from_static("cross-origin-resource-policy"),
+            HeaderValue::from_static("cross-origin"),
+        );
+        return response;
+    }
+    if path.is_some() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match tokio::fs::read(app_path(category, &slug)).await {
+        Ok(bytes) => app_html_response(bytes),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+fn bundle_csp(headers: &HeaderMap, category: HtmlAppCategory, slug: &str) -> Option<HeaderValue> {
+    let host = headers.get(header::HOST)?.to_str().ok()?;
+    let authority: axum::http::uri::Authority = host.parse().ok()?;
+    if authority.as_str().contains('@') {
+        return None;
+    }
+    let sources = format!(
+        "http://{authority}/{}/{slug}/ https://{authority}/{}/{slug}/",
+        category.as_str(),
+        category.as_str()
+    );
+    HeaderValue::from_str(&format!("sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' blob: {sources}; style-src 'unsafe-inline' {sources}; img-src data: blob: {sources}; media-src data: blob: {sources}; font-src data: {sources}; connect-src {sources}; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'")).ok()
 }
 
 fn app_html_response(bytes: Vec<u8>) -> Response {
@@ -352,7 +616,12 @@ fn app_html_response(bytes: Vec<u8>) -> Response {
 
 async fn app_security_headers(req: Request, next: Next) -> Response {
     let mut response = next.run(req).await;
-    apply_app_security_headers(&mut response);
+    if !response
+        .headers()
+        .contains_key(header::CONTENT_SECURITY_POLICY)
+    {
+        apply_app_security_headers(&mut response);
+    }
     response
 }
 
@@ -496,7 +765,7 @@ fn validate_text_fields(title: &str, description: &str) -> Result<(), &'static s
     Ok(())
 }
 
-fn validate_html(html: &str) -> Result<(), &'static str> {
+pub(super) fn validate_html(html: &str) -> Result<(), &'static str> {
     if html.trim().is_empty() {
         return Err("HTML must not be empty");
     }
@@ -537,7 +806,7 @@ async fn save_manifest(apps: &[HtmlAppMeta]) -> std::io::Result<()> {
     atomic_write(&PathBuf::from(MANIFEST_PATH), contents.as_bytes()).await
 }
 
-async fn atomic_write(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+pub(super) async fn atomic_write(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -674,6 +943,26 @@ mod tests {
             response.headers().get(header::CONTENT_TYPE).unwrap(),
             "text/html; charset=utf-8"
         );
+    }
+
+    #[test]
+    fn bundle_csp_uses_http2_authority_and_stays_within_app() {
+        let request = Request::builder()
+            .uri("https://example.com/tools/demo/")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let headers = app_request_headers(request);
+        let csp = bundle_csp(&headers, HtmlAppCategory::Tools, "demo").unwrap();
+        let csp = csp.to_str().unwrap();
+        assert!(csp.contains("https://example.com/tools/demo/"));
+        assert!(!csp.contains("allow-same-origin"));
+        assert!(!csp.contains("'self'"));
+        let mut bad = HeaderMap::new();
+        bad.insert(
+            header::HOST,
+            HeaderValue::from_static("attacker@example.com"),
+        );
+        assert!(bundle_csp(&bad, HtmlAppCategory::Tools, "demo").is_none());
     }
 
     #[tokio::test]

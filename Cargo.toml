@@ -9,6 +9,7 @@ force-http = []
 [dependencies]
 ammonia = "3"
 axum = "0.8.9"
+base64 = "0.22"
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }
 brotli = "8.0.4"
 bytes = "1"

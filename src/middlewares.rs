@@ -703,7 +703,7 @@ pub async fn admin_auth_middleware(
 /// note_auth_middleware — 笔记与发文专线鉴权中间件
 /// 支持两种认证机制：
 /// 1. Admin / Agent 使用常规 HS256 JWT（本地 jwt_secret）
-/// 2. Agent 使用 Ed25519 签名的 JWT（本地 .agent.pub 公钥验签），完全免除密码与 cf-trace
+/// 2. Agent 使用 Ed25519 JWT，按 kid 从授权列表选择公钥（兼容 .agent.pub）。
 pub async fn note_auth_middleware(
     State(state): State<Arc<AppState>>,
     req: Request,
@@ -749,39 +749,17 @@ pub async fn note_auth_middleware(
         }
     }
 
-    // 2. 尝试用服务器保存的 Agent 公钥（.agent.pub / LILY_AGENT_PUB_KEY）进行非对称验签
-    if let Some(ref pub_key_bytes) = state.agent_pub_key {
-        let validation_asym = Validation::new(Algorithm::EdDSA);
-
-        let decoding_key = DecodingKey::from_ed_pem(pub_key_bytes);
-
-        if let Ok(key) = decoding_key {
-            if let Ok(data) = decode::<AuthClaims>(&token, &key, &validation_asym) {
-                if is_jwt_revoked(&state, &data.claims).await {
-                    warn!("Note API request rejected: agent token has been revoked (jti)");
-                    return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
-                }
-                if data.claims.role == "agent" || data.claims.role == "admin" {
-                    info!(
-                        "Agent public key authentication successful for sub: {}",
-                        data.claims.sub
-                    );
-                    return next.run(req).await;
-                } else {
-                    warn!(
-                        "Agent JWT valid but role '{}' is not allowed",
-                        data.claims.role
-                    );
-                    return (StatusCode::FORBIDDEN, "Forbidden").into_response();
-                }
-            } else {
-                warn!("Agent public key signature verification failed for token");
-            }
-        } else {
-            warn!("Failed to parse agent public key from PEM format (must be Ed25519 PEM)");
+    // Named Ed25519 keys are selected by kid; tokens without kid use only legacy.
+    if let Some(claims) = state.agent_keys.verify(&token) {
+        if is_jwt_revoked(&state, &claims).await {
+            return auth_error(StatusCode::UNAUTHORIZED, "Unauthorized");
         }
+        if claims.role == "agent" || claims.role == "admin" {
+            info!("Agent authentication successful for sub: {}", claims.sub);
+            return next.run(req).await;
+        }
+        return (StatusCode::FORBIDDEN, "Forbidden").into_response();
     }
-
     warn!("Note API authentication failed: invalid token or signature");
     (
         StatusCode::UNAUTHORIZED,

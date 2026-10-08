@@ -836,11 +836,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const appDescription = document.getElementById('appDescription');
     const appSlug = document.getElementById('appSlug');
     const appHtmlFile = document.getElementById('appHtmlFile');
+    const appFolderFiles = document.getElementById('appFolderFiles');
     const appFileHint = document.getElementById('appFileHint');
     const appEditorStatus = document.getElementById('appEditorStatus');
 
     let editingApp = null;
     let selectedAppHtml = null;
+    let selectedAppFiles = null;
+    let appSelectionVersion = 0;
     let selectedAppFilename = '';
 
     function setAppsStatus(message, isError = false) {
@@ -918,7 +921,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const path = document.createElement('div');
             path.className = 'app-path';
-            path.textContent = `/${category}/${app.slug || ''}`;
+            path.textContent = app.url || `/${category}/${app.slug || ''}`;
 
             const description = document.createElement('p');
             description.className = 'app-description';
@@ -950,10 +953,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function openAppEditor(app = null) {
+        appSelectionVersion++;
+        saveAppBtn.disabled = false;
         editingApp = app;
         selectedAppHtml = null;
         selectedAppFilename = app?.filename || '';
         appHtmlFile.value = '';
+        appFolderFiles.value = '';
+        selectedAppFiles = null;
         appCategory.value = app?.category === 'games' ? 'games' : 'tools';
         appTitle.value = app?.title || '';
         appDescription.value = app?.description || '';
@@ -962,14 +969,15 @@ document.addEventListener('DOMContentLoaded', () => {
         appSlug.disabled = Boolean(app);
         appEditorTitle.textContent = app ? '编辑应用' : '上传应用';
         appFileHint.textContent = app
-            ? `当前文件：${app?.filename || `${app.slug}.html`}。不选择新文件将保留现有 HTML。`
-            : '请选择一个自包含的 HTML 文件。';
+            ? `当前${app.bundle ? '文件夹' : '文件'}：${app?.filename || `${app.slug}.html`}。不选择新文件将保留现有内容。`
+            : '选择 HTML 或应用文件夹；文件夹最多 64 个文件、总计 8 MiB，每个文件不超过 2 MiB。';
         setAppEditorStatus('');
         appEditorOverlay.classList.add('active');
         document.body.style.overflow = 'hidden';
     }
 
     function closeAppEditor() {
+        appSelectionVersion++;
         appEditorOverlay.classList.remove('active');
         document.body.style.overflow = '';
     }
@@ -991,7 +999,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     appHtmlFile.addEventListener('change', async () => {
+        const version = ++appSelectionVersion;
+        saveAppBtn.disabled = false;
         const file = appHtmlFile.files && appHtmlFile.files[0];
+        selectedAppFiles = null;
+        appFolderFiles.value = '';
         selectedAppHtml = null;
         selectedAppFilename = '';
         if (!file) return;
@@ -1008,14 +1020,63 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            selectedAppHtml = await readHtmlFile(file);
+            saveAppBtn.disabled = true;
+            const html = await readHtmlFile(file);
+            if (version !== appSelectionVersion) return;
+            selectedAppHtml = html;
             selectedAppFilename = file.name;
             if (!editingApp && !appSlug.value.trim()) appSlug.value = slugFromFilename(file.name);
             if (!editingApp && !appTitle.value.trim()) appTitle.value = file.name.replace(/\.[^.]+$/, '');
             appFileHint.textContent = `${file.name} · ${file.size.toLocaleString()} 字节`;
             setAppEditorStatus(selectedAppHtml ? '文件已读取，保存后即可访问。' : 'HTML 文件为空。', !selectedAppHtml);
         } catch (error) {
+            if (version !== appSelectionVersion) return;
             setAppEditorStatus('读取 HTML 文件失败。', true);
+        } finally {
+            if (version === appSelectionVersion) saveAppBtn.disabled = false;
+        }
+    });
+
+    appFolderFiles.addEventListener('change', async () => {
+        const version = ++appSelectionVersion;
+        saveAppBtn.disabled = false;
+        selectedAppFiles = null;
+        selectedAppHtml = null;
+        selectedAppFilename = '';
+        appHtmlFile.value = '';
+        const files = Array.from(appFolderFiles.files || []);
+        if (!files.length) return;
+        saveAppBtn.disabled = true;
+        setAppEditorStatus('正在读取应用文件夹...');
+        try {
+            if (files.length > 64 || files.reduce((sum, f) => sum + f.size, 0) > 8 * 1024 * 1024 || files.some(f => f.size > 2 * 1024 * 1024)) {
+                throw new Error('最多 64 个文件、总计 8 MiB，每个文件不超过 2 MiB。');
+            }
+            const root = files[0].webkitRelativePath.split('/')[0];
+            const pending = [];
+            for (const file of files) {
+                const path = file.webkitRelativePath.slice(root.length + 1);
+                if (!/\.(html?|css|m?js|json|txt|svg|png|jpe?g|gif|webp|ico|woff2?|mp3|wav|ogg|mp4|webm)$/i.test(path)) {
+                    throw new Error(`不支持的文件类型：${path}。请选择只包含发布文件的文件夹。`);
+                }
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                let binary = '';
+                for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+                pending.push({ path, content: btoa(binary), encoding: 'base64' });
+            }
+            if (!pending.some(f => f.path === 'index.html')) throw new Error('所选文件夹根目录需要 index.html。');
+            if (version !== appSelectionVersion) return;
+            selectedAppFiles = pending;
+            selectedAppFilename = root;
+            if (!editingApp && !appSlug.value.trim()) appSlug.value = slugFromFilename(`${root}.html`);
+            if (!editingApp && !appTitle.value.trim()) appTitle.value = root;
+            appFileHint.textContent = `${root} · ${files.length} 个文件`;
+            setAppEditorStatus('文件夹已读取。保存将完整替换应用内容。');
+        } catch (error) {
+            if (version !== appSelectionVersion) return;
+            setAppEditorStatus(error.message || '读取文件夹失败。', true);
+        } finally {
+            if (version === appSelectionVersion) saveAppBtn.disabled = false;
         }
     });
 
@@ -1032,8 +1093,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setAppEditorStatus('请填写标题。', true);
             return;
         }
-        if (!editingApp && !selectedAppHtml) {
-            setAppEditorStatus('请选择有效的 HTML 文件。', true);
+        if (!editingApp && !selectedAppHtml && !selectedAppFiles) {
+            setAppEditorStatus('请选择有效的 HTML 文件或应用文件夹。', true);
             return;
         }
         if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
@@ -1053,6 +1114,7 @@ document.addEventListener('DOMContentLoaded', () => {
             slug: identitySlug,
             filename: selectedAppFilename || editingApp?.filename || null,
             html: selectedAppHtml,
+            files: selectedAppFiles,
         };
 
         saveAppBtn.disabled = true;

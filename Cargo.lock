@@ -1199,6 +1199,7 @@ dependencies = [
  "ammonia",
  "axum",
  "axum-server",
+ "base64",
  "brotli",
  "bytes",
  "chrono",

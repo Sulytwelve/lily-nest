@@ -1,0 +1,22 @@
+# Copy to .agent-keys.toml and replace each public_key with your Ed25519 PUBLIC PEM.
+# Restart lily-nest after changing the key list. Never put private keys here.
+# id is the JWT header's kid; 'legacy' is reserved for .agent.pub/LILY_AGENT_PUB_KEY.
+[[keys]]
+id = "desktop-agent"
+name = "Desktop Agent"
+enabled = true
+public_key = """
+-----BEGIN PUBLIC KEY-----
+REPLACE_WITH_YOUR_ED25519_PUBLIC_KEY
+-----END PUBLIC KEY-----
+"""
+
+[[keys]]
+id = "ci-agent"
+name = "CI Agent"
+enabled = false
+public_key = """
+-----BEGIN PUBLIC KEY-----
+REPLACE_WITH_YOUR_ED25519_PUBLIC_KEY
+-----END PUBLIC KEY-----
+"""

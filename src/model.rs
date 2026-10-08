@@ -398,12 +398,33 @@ pub struct HtmlAppMeta {
     pub title: String,
     #[serde(default)]
     pub description: String,
-    /// 用户上传时的原文件名，仅用于后台展示；磁盘文件始终使用 `{slug}.html`。
+    /// 用户上传时的原文件名，仅用于后台展示。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<HtmlAppBundle>,
     pub created_at: String,
     pub updated_at: String,
     pub url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HtmlAppBundle {
+    pub revision: String,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HtmlAppFile {
+    pub path: String,
+    pub content: String,
+    /// `text` (default) or `base64` for binary assets.
+    #[serde(default = "default_file_encoding")]
+    pub encoding: String,
+}
+
+fn default_file_encoding() -> String {
+    "text".into()
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -422,7 +443,10 @@ pub struct AdminHtmlAppCreateRequest {
     pub slug: Option<String>,
     #[serde(default)]
     pub filename: Option<String>,
-    pub html: String,
+    #[serde(default)]
+    pub html: Option<String>,
+    #[serde(default)]
+    pub files: Option<Vec<HtmlAppFile>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -440,4 +464,6 @@ pub struct AdminHtmlAppUpdateRequest {
     /// 缺失或 null 表示只更新元数据，保留已有 HTML。
     #[serde(default)]
     pub html: Option<String>,
+    #[serde(default)]
+    pub files: Option<Vec<HtmlAppFile>>,
 }

@@ -113,15 +113,15 @@ pub struct AppState {
     pub revoked_jtis: Mutex<HashMap<String, u64>>,
     /// 优先从环境变量 LILY_JWT_SECRET 或本地 .jwt_secret 文件加载，保证重启后会话持久
     pub jwt_secret: Vec<u8>,
-    /// Agent 公钥（优先 .agent.pub，支持 Ed25519 非对称 JWT 验签）
-    pub agent_pub_key: Option<Vec<u8>>,
+    /// 多个授权 Agent 公钥，以及兼容旧配置的 legacy 公钥。
+    pub agent_keys: crate::agent_keys::AgentKeys,
 
     // Notes
     pub note_index: RwLock<Vec<NoteSummary>>,
     pub note_html_cache: RwLock<HashMap<String, NoteHtmlCache>>,
     pub note_list_html_cache: RwLock<Option<Bytes>>,
 
-    // Admin-managed self-contained HTML apps. Mutations are serialized so the
+    // Admin/Agent-managed single HTML and folder apps. Mutations are serialized so the
     // manifest and files cannot be changed concurrently by two requests.
     pub html_apps: RwLock<Vec<HtmlAppMeta>>,
     pub html_app_mutations: Mutex<()>,

@@ -78,8 +78,8 @@
     <main id="viewApp" class="admin-content view-section" style="display: none;">
         <div class="apps-toolbar">
             <div>
-                <h2>单页应用</h2>
-                <p>上传自包含 HTML，发布到 /tools 或 /games。</p>
+                <h2>应用管理</h2>
+                <p>上传单个 HTML 或含 CSS、JS 的应用文件夹，发布到 /tools 或 /games。</p>
             </div>
             <md-filled-button id="addAppBtn">上传应用</md-filled-button>
         </div>
@@ -147,10 +147,14 @@
             <md-outlined-text-field id="appDescription" label="Description" type="textarea" rows="3" class="w-full"></md-outlined-text-field>
             <md-outlined-text-field id="appSlug" label="Slug（可留空，自动取文件名）" type="text" supporting-text="仅使用小写英文、数字和连字符，例如 curl-to-code" class="w-full"></md-outlined-text-field>
             <label class="html-file-picker" for="appHtmlFile">
-                <span>单页 HTML 文件</span>
+                <span>单个 HTML 文件</span>
                 <input id="appHtmlFile" type="file" accept=".html,.htm,text/html">
             </label>
-            <div id="appFileHint" class="file-hint">请选择一个自包含的 HTML 文件。</div>
+            <label class="html-file-picker" for="appFolderFiles">
+                <span>或选择应用文件夹（根目录包含 index.html）</span>
+                <input id="appFolderFiles" type="file" webkitdirectory multiple>
+            </label>
+            <div id="appFileHint" class="file-hint">选择 HTML 文件或以 index.html 为入口的应用文件夹。</div>
             <div id="appEditorStatus" class="status-info" aria-live="polite"></div>
         </div>
     </div>

@@ -1,3 +1,4 @@
+mod agent_keys;
 mod app;
 mod compressor;
 mod config;

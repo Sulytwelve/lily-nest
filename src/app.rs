@@ -87,11 +87,8 @@ pub async fn build_app(assets_config: AssetsConfig) -> Router {
         }
     };
 
-    // 优先从环境变量 LILY_AGENT_PUB_KEY 或本地 .agent.pub 读取 Agent 公钥
-    let agent_pub_key = std::env::var("LILY_AGENT_PUB_KEY")
-        .ok()
-        .map(|s| s.into_bytes())
-        .or_else(|| std::fs::read(".agent.pub").ok());
+    let agent_keys = crate::agent_keys::AgentKeys::load()
+        .unwrap_or_else(|error| panic!("Agent key configuration: {error}"));
 
     let markdown_bytes = if markdown_config.enable {
         crate::render::render_index_markdown().into()
@@ -100,7 +97,7 @@ pub async fn build_app(assets_config: AssetsConfig) -> Router {
     };
 
     let state = Arc::new(AppState {
-        agent_pub_key,
+        agent_keys,
         html_cache: RwLock::new(crate::state::HtmlCache::new(
             SystemTime::now(),
             crate::render::render_index().into(),
@@ -139,6 +136,7 @@ pub async fn build_app(assets_config: AssetsConfig) -> Router {
         // 走 note_auth_middleware 的 Bearer JWT 校验，刻意不挂 CORS。
         .merge(routes::note_admin::router(state.clone()))
         .merge(routes::html_apps::admin_router(state.clone()))
+        .merge(routes::html_apps::agent_router(state.clone()))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             security_headers,

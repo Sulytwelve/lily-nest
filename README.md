@@ -103,7 +103,7 @@ Go版本是CodeX翻译当前Rust版本得来，只做参考，非生产产品。
 - **「梨记」轻量级笔记模块 (NEW!)**：无需数据库，文章全部以 `.md` 纯文本文件存储于 `notes/` 目录。
 - **笔记全文瞬时检索**：前端原生 JavaScript 提供零网络请求的标题、摘要与 `#标签` 秒级过滤。
 - **「梨记」图片上传**：后台编辑笔记时可直接粘贴/上传 PNG/JPG/GIF/WebP 图片，按魔数严格校验、原子写入 `static/images/notes/`，无需手动管理资源路径。
-- **单页应用管理**：后台上传自包含 HTML 到 `apps/tools/` 或 `apps/games/`，自动发布为 `/tools/{slug}`、`/games/{slug}`；`/apps` 提供分类目录，`?format=markdown` 供 Agent/爬虫读取。
+- **应用管理**：后台或 Agent 上传单个 HTML / 完整静态应用文件夹到 `apps/tools/` 或 `apps/games/`，支持自己的 CSS、JS、图片及多个 HTML 页面；`/apps` 提供分类目录，`?format=markdown` 供 Agent/爬虫读取。
 - 首页动态渲染（项目、团队成员、关于我、更新日志）
 - **HTML 片段模块化渲染**：采用 `templates/fragments/` 独立骨架片段，运行时动态拼装，免除 Rust 源码重编译
 - **强大的后台管理面板 (/admin)**：不仅支持在线编辑各项 TOML 配置，还内置了**在线 Markdown 编辑器**用于新建、修改、删除笔记文件，保存操作 100% 异步落盘。
@@ -141,12 +141,15 @@ lily-nest/
 ├── about.toml                # 关于我列表配置
 ├── changelog.toml            # 更新日志配置
 ├── notes/                    # 「梨记」Markdown 笔记存储目录 (NEW!)
-├── apps/                     # 后台上传的运行时单页应用（gitignore）
+├── apps/                     # 后台/Agent 上传的运行时应用（gitignore）
 │   ├── manifest.toml         # 标题、description、分类与 slug
 │   ├── tools/                # 发布为 /tools/{slug}
 │   └── games/                # 发布为 /games/{slug}
 ├── .jwt_secret               # （不入库，自动生成，0600）JWT 签名密钥
 ├── .agent.pub                # （不入库，可选）Agent Ed25519 公钥，用于发文专线
+├── .agent-keys.toml          # （不入库，可选）多个授权 Agent 公钥
+├── agent-keys.example.toml   # 多公钥配置模板
+├── scripts/publish-app.mjs   # Agent 签名与单文件/文件夹发布脚本（Node.js >= 18）
 ├── certs/                    # SSL 证书目录
 ├── src/
 │   ├── main.rs               # 应用入口（含 set-password / set-security-answers CLI）
@@ -156,7 +159,8 @@ lily-nest/
 │   │   ├── mod.rs            
 │   │   ├── home.rs           # 首页路由（含 304 支持）
 │   │   ├── apps_catalog.rs   # /apps HTML/Markdown 目录与分类筛选
-│   │   ├── html_apps.rs      # 单页应用后台 CRUD、落盘与沙箱公开路由
+│   │   ├── html_apps.rs      # 应用后台/Agent CRUD、落盘与沙箱公开路由
+│   │   ├── app_bundle.rs     # 多文件校验、版本目录与静态资源读取
 │   │   ├── note.rs           # 「梨记」前台路由 (列表与详情)
 │   │   ├── note_admin.rs     # 「梨记」后台与 Agent REST API 路由 (CRUD + 图片上传)
 │   │   ├── api.rs            # 公开 RESTful API 与认证、配置保存
@@ -197,9 +201,44 @@ lily-nest/
 ## 管理后台 (/admin)
 项目内置了一个基于 Material Design 3 的管理后台，允许管理员直接在浏览器中修改站点内容。
 
-后台的“应用管理”可选择 `tools` / `games` 分类并上传不超过 2 MiB 的自包含 HTML。slug 可手工填写；留空时会从文件名规范化生成。公开应用使用独立 CSP 沙箱，允许内联 JavaScript，但不能取得站点同源身份、后台 JWT、联网或提交表单。
+后台的“应用管理”可选择 `tools` / `games` 分类，上传单个自包含 HTML，或选择以 `index.html` 为根入口的静态应用文件夹。单文件不超过 2 MiB；文件夹最多 64 个文件、总计 8 MiB，每个文件不超过 2 MiB。slug 可手工填写；留空时从文件名/文件夹名生成。
 
-应用接口仅接受管理员 JWT：`GET/POST /api/v1/admin/apps`，以及 `PUT/DELETE /api/v1/admin/apps/{category}/{slug}`。公开目录支持 `/apps?category=tools|games` 和 `/apps?format=markdown&category=tools|games`；HTML `<head>` 也包含对应的 Markdown alternate 链接。
+单文件仍保存为 `apps/{category}/{slug}.html`，旧应用无需迁移。文件夹保存为 `apps/{category}/{slug}/{revision}/`，清单记录当前版本和允许公开的文件。全部文件写入成功后才发布清单。编辑时重新选择文件夹会完整替换文件集；只修改标题/描述会保留文件。单文件可通过上传文件夹升级，保留分类和 slug，升级成功后清理旧 HTML。
+
+单文件公开地址是 `/tools/{slug}` 或 `/games/{slug}`；文件夹入口带末尾 `/`，原无斜杠地址会自动跳转。HTML 使用 `./css/style.css`、`./js/main.js` 等相对路径，其他页面可链接到 `./other.html`。支持 HTML/HTM、CSS、JS/MJS、JSON、TXT、常见图片、WOFF/WOFF2 及音视频；文件路径使用英文字母、数字、`-`、`_`、`.`，不接受隐藏文件、路径穿越、重复路径或 Windows 保留文件名。请选择构建后的发布目录，例如 `dist/`，不要上传源码仓库、私钥或 `node_modules/`。
+
+公开应用使用独立 CSP 沙箱：允许内联脚本，以及本应用目录中的 CSS、普通 JS、JS 模块、图片和 `fetch` 数据请求；保留不透明来源隔离，不授予站点同源身份或后台访问能力。外部 API/CDN、表单提交、iframe、localStorage/Service Worker 等依赖同源身份的能力不在此范围内。应用是静态文件托管，不运行 Node/Python 后端，也不自动把不存在的前端路由回退到 `index.html`；前端路由可使用 hash 模式。浏览器测试请使用 `localhost` 或实际域名，避免裸 IPv6 地址的 CSP 匹配限制。
+
+后台接口接受管理员 JWT：`GET/POST /api/v1/admin/apps`，以及 `PUT/DELETE /api/v1/admin/apps/{category}/{slug}`。Agent 对应接口是 `GET/POST /api/v1/apps`、`PUT/DELETE /api/v1/apps/{category}/{slug}`，使用下面的 Agent JWT 鉴权。公开目录支持 `/apps?category=tools|games` 和 `/apps?format=markdown&category=tools|games`。
+
+创建请求示例（更新时使用同样的 `html` 或 `files` 字段；两者互斥，省略两者只更新元信息）：
+
+```json
+{
+  "category": "tools",
+  "slug": "demo",
+  "title": "Demo",
+  "description": "多文件应用",
+  "files": [
+    {"path": "index.html", "content": "<!doctype html><link rel=stylesheet href=./style.css><h1>Demo</h1><script src=./main.js></script>"},
+    {"path": "style.css", "content": "h1 { color: green; }"},
+    {"path": "main.js", "content": "document.querySelector('h1').textContent = 'Ready';"}
+  ]
+}
+```
+
+每项 `encoding` 默认为 `text`；图片等二进制文件使用 `encoding: "base64"` 和 Base64 内容。单文件请求使用 `"html": "<!doctype html>..."` 代替 `files`。创建返回 `201` 和含 `url` 的应用元信息；同分类 slug 冲突返回 `409`；更新不能改变分类和 slug。
+
+Node.js >= 18 可直接使用发布脚本，无需安装依赖：
+
+```bash
+node scripts/publish-app.mjs --site https://your-site.example --key /private/agent.key --kid desktop-agent --category tools --slug demo --title "Demo" --input ./dist
+# 更新已有应用：上述命令加 --update；--input 也可以指向单个 HTML。
+```
+
+也支持 `LILY_SITE_URL`、`LILY_AGENT_KEY_FILE`、`LILY_AGENT_KEY_ID` 环境变量，或以 `LILY_AGENT_TOKEN` 提供短期 JWT。脚本在本地读取私钥签发 5 分钟 JWT，只上传签名 token 和应用文件，不上传私钥；远程发布要求 HTTPS。公钥只能用于服务端验签，不能代替私钥签发 JWT。
+
+本地验证：`cargo test --offline`，再运行 `cargo build --offline` 和 `node scripts/test-app-publishing.mjs`。集成测试在 `target/` 下创建独立临时站点和随机测试钥匙，覆盖发布、升级、鉴权、禁用钥匙后重启、HTTP/2 资源 CSP 与发布脚本，退出时清理临时站点。
 
 ### 1. 凭据存储：哈希 + 加盐，不再明文落盘
 
@@ -269,6 +308,10 @@ openssl pkey -in agent.key -pubout -out agent.pub
 
 将 `agent.pub` 改名为 `.agent.pub` 放到项目根目录（或通过环境变量 `LILY_AGENT_PUB_KEY` 配置）。`agent.key` 由 Agent 脚本持有，用于签发 JWT。
 
+需要多台机器或多个 Agent 时，把 `agent-keys.example.toml` 复制为 `.agent-keys.toml`，将每项 `public_key` 替换成完整 Ed25519 公钥 PEM。每个 `[[keys]]` 配置 `id`、`name`、`enabled` 和 `public_key`；`id` 唯一且为 1–64 个 ASCII 字母、数字、`-` 或 `_`。也可通过 `LILY_AGENT_KEYS_FILE` 指向其他配置文件。服务启动时读取并校验配置；改动后需要重启。删除条目或设 `enabled = false` 即撤销该钥匙（重启后旧 token 也失效）。格式错误、重复 ID 或无效 PEM 会阻止启动，避免悄悄忽略配置。
+
+多公钥 JWT 必须在 header 中设置对应的 `kid`，例如 `{"alg":"EdDSA","typ":"JWT","kid":"desktop-agent"}`。原来的 `.agent.pub` / `LILY_AGENT_PUB_KEY` 可以和列表并存，保留为 `legacy`；不带 `kid` 的旧 JWT 只尝试这把旧钥匙，也接受 `kid: "legacy"`。`legacy` 为保留 ID；未知或禁用的 `kid` 会直接拒绝，不尝试其他钥匙。迁移旧钥匙到列表后，需删除旧文件/环境变量并重启，才能撤销兼容入口。所有授权钥匙目前都能管理应用和笔记，没有按钥匙细分权限，也不能使用 Agent token 访问管理员配置接口。
+
 ### 2. 认证方式
 
 请求头携带 EdDSA 签名的 JWT：
@@ -286,7 +329,7 @@ JWT 载荷需包含以下声明：
 | `role` | `"agent"` | 必须为 `agent` 或 `admin` |
 | `exp` | Unix 时间戳 | 建议 5 分钟有效期 |
 
-> `/api/v1/notes*` 鉴权中间件 `note_auth_middleware` 优先按本地 HS256 密钥校验，若失败再尝试 Ed25519 公钥校验。Web 端用 admin 角色签发的 HS256 JWT 与 Agent 用 EdDSA 签发的 JWT 均可访问。
+> `/api/v1/notes*` 和 `/api/v1/apps*` 使用同一鉴权中间件，优先校验本地 HS256 JWT，再按 `kid` 选择授权 Ed25519 公钥。Web 管理员 JWT 与 Agent EdDSA JWT 均可访问这些专线。
 
 ### 3. 接口列表
 
@@ -379,6 +422,7 @@ cargo run --release    # 或 cargo run（开发模式）
 | `LILY_ADMIN_SECURITY_ANSWER_HASHES` | 逗号分隔的多个 `sha256$<salt_hex>$<hash_hex>`，顺序对应 `admin_security_questions` |
 | `LILY_JWT_SECRET` | ≥ 32 字节的 JWT 签名密钥；缺省时持久化到 `.jwt_secret` |
 | `LILY_AGENT_PUB_KEY` | Agent Ed25519 公钥（PEM）；缺省时尝试 `.agent.pub` |
+| `LILY_AGENT_KEYS_FILE` | 多公钥 TOML 配置路径；缺省时尝试 `.agent-keys.toml`，可与旧单公钥并存 |
 
 ## 配置说明
 - `config.toml`：TLS 证书路径、`[security]` 安全策略（CORS、CSP、Permissions Policy、可信代理 IP、密保题目、安全问题 / Cloudflare Trace 二次校验开关等）、`[assets]` 预压缩配置与各类别（HTML、API、JS/CSS、图片、字体等）缓存时长解耦配置。**管理员密码与密保答案已迁出**，此处对应字段已注释。
@@ -390,17 +434,18 @@ cargo run --release    # 或 cargo run（开发模式）
 - `about.toml`：关于我
 - `changelog.toml`：更新日志配置，用于首页时间轴展示
 - `static/`：静态资源（图片、CSS、JS、robots.txt 等）；`static/images/notes/` 为「梨记」上传图片目录（gitignored）
-- `apps/`：后台上传的工具/游戏 HTML 与 `manifest.toml`（gitignored，部署时需持久化）
+- `apps/`：后台/Agent 上传的工具/游戏 HTML、文件夹版本与 `manifest.toml`（gitignored，部署时需持久化）
 - `templates/`：前端页面及片段骨架 HTML 模板
 - `.jwt_secret`（不入库，自动生成，Unix 下 `chmod 0600`）：HS256 JWT 签名密钥；可用 `LILY_JWT_SECRET` 覆盖
 - `.agent.pub`（不入库，可选）：Agent Ed25519 公钥；可用 `LILY_AGENT_PUB_KEY` 覆盖
+- `.agent-keys.toml`（不入库，可选）：多个授权 Agent 公钥；可用 `LILY_AGENT_KEYS_FILE` 指定路径，改动后重启
 
 ## 安全特性
 - **HTTP/2 协议层防御**：全局限制 `max_header_list_size` 为 32KB，从底层阻断针对 HTTP/2 HPACK 的压缩炸弹攻击（如 CVE-2026-49975），拒绝异常内存消耗，实际`hyper`和`h2`底层是`“免疫”`这种攻击的，当前项目增加也是纵深防御。
 - **认证秘密加盐哈希存储**：管理员密码与密保答案一律以 `sha256$<salt_hex>$<hash_hex>` 写入 `secrets.toml`，Unix 下 `chmod 0600`；容器化部署可走环境变量注入，源代码 / 配置文件里不再出现明文。
 - **HS256 + EdDSA 双轨 JWT**：
   - Web 管理后台：HS256 JWT，密钥来自 `LILY_JWT_SECRET` 或持久化的 `.jwt_secret`（0600）。
-  - Agent 发文专线：Ed25519（EdDSA）JWT，公钥来自 `LILY_AGENT_PUB_KEY` 或 `.agent.pub`，完全免密码 / cf-trace。
+  - Agent 发文/应用发布专线：Ed25519（EdDSA）JWT，支持 `.agent-keys.toml` 多公钥与旧单公钥配置，完全免密码 / cf-trace。
   - 笔记 API 中间件会按 HS256 → EdDSA 顺序自动尝试两者。
 - **服务端 JWT 吊销表**：每个 JWT 携带 `jti`，登出 / 改密后服务端将 `jti` 写入内存吊销表，所有后续校验都会拦截已被吊销的 token；过期项按 `exp` 自动清理。
 - **登录限流**：按客户端 IP 分片限流（B26），60 秒窗口内最多 5 次；可信代理白名单 `trusted_proxy_ips` 校正 `X-Forwarded-For` / `CF-Connecting-IP`。
