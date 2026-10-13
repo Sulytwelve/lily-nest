@@ -231,8 +231,9 @@ fn render_sections(apps: &[HtmlAppMeta], filter: CategoryFilter) -> String {
                     description
                 };
                 sections.push_str(&format!(
-                    "<article class=\"app-card\"><div class=\"card-copy\"><span class=\"category-badge\">{}</span><h3>{}</h3><p>{}</p></div><a class=\"open-app\" href=\"{}\"><span>打开应用</span><span aria-hidden=\"true\">↗</span></a></article>",
-                    heading, title, description, url
+                    "<a class=\"app-card\" href=\"{}\" aria-labelledby=\"app-{}-{}\"><div class=\"card-copy\"><span class=\"category-badge\">{}</span><h3 id=\"app-{}-{}\">{}</h3><p>{}</p></div><span class=\"open-app\" aria-hidden=\"true\"><span>打开应用</span><span>→</span></span></a>",
+                    url, category.as_str(), escape_html(&app.slug), heading,
+                    category.as_str(), escape_html(&app.slug), title, description
                 ));
             }
             sections.push_str("</div>");
@@ -337,6 +338,22 @@ mod tests {
         assert!(!rendered.contains("\" onmouseover=\"bad"));
         assert!(rendered.contains("&lt;script&gt;"));
         assert!(rendered.contains("&quot; onmouseover=&quot;bad"));
+    }
+
+    #[test]
+    fn cards_are_single_named_links_and_preserve_bundle_urls() {
+        let mut tool = app(HtmlAppCategory::Tools, "Tool & title", "Long description");
+        tool.url = "/tools/demo/".into();
+        let apps = [tool, app(HtmlAppCategory::Games, "Game", "Play it")];
+        let rendered = render_sections(&apps, CategoryFilter::All);
+        assert!(rendered.contains(
+            "<a class=\"app-card\" href=\"/tools/demo/\" aria-labelledby=\"app-tools-demo\">"
+        ));
+        assert!(rendered.contains("<h3 id=\"app-tools-demo\">Tool &amp; title</h3>"));
+        assert!(rendered.contains("aria-labelledby=\"app-games-demo\""));
+        assert_eq!(rendered.matches("<a ").count(), apps.len());
+        assert!(!rendered.contains("<a class=\"open-app\""));
+        assert!(rendered.contains("Long description"));
     }
 
     #[test]
