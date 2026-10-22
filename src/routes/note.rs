@@ -16,6 +16,13 @@ struct NoteQuery {
     format: Option<String>,
 }
 
+fn sanitize_note_html(html: &str) -> String {
+    ammonia::Builder::default()
+        .add_allowed_classes("span", &["math", "math-inline", "math-display"])
+        .clean(html)
+        .to_string()
+}
+
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/note", get(handle_note_list))
@@ -354,7 +361,7 @@ async fn handle_note_detail(
 
                 // B1: 消毒 Markdown 渲染产物，阻止原始 HTML / javascript: 等进入 DOM。
                 // 后续的缓存写入与模板插入都使用这个消毒后的 html_output。
-                let html_output = ammonia::Builder::default().clean(&html_output).to_string();
+                let html_output = sanitize_note_html(&html_output);
 
                 // 将 GFM 表格包进 .table-scroll 滚动容器：表格按内容自然撑宽时可能
                 // 超过正文栏宽（th 不换行 / 代码单元格），由容器在栏宽处裁剪并保持
@@ -481,4 +488,28 @@ async fn handle_note_detail(
     }
 
     StatusCode::NOT_FOUND.into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_note_html;
+    use pulldown_cmark::{Options, Parser, html};
+
+    #[test]
+    fn sanitizer_preserves_math_nodes_and_removes_active_html() {
+        let markdown = "$x^2$\n\n$$\\frac{1}{2}$$\n\n<script>alert(1)</script>\n\n[unsafe](javascript:alert(1))\n\n<span class=\"math-inline hidden\" style=\"color:red\" onclick=\"alert(1)\">x</span>";
+        let mut rendered = String::new();
+        html::push_html(
+            &mut rendered,
+            Parser::new_ext(markdown, Options::ENABLE_MATH),
+        );
+        let clean = sanitize_note_html(&rendered);
+        assert!(clean.contains("class=\"math math-inline\">x^2</span>"));
+        assert!(clean.contains("class=\"math math-display\">\\frac{1}{2}</span>"));
+        assert!(!clean.contains("<script"));
+        assert!(!clean.contains("javascript:"));
+        assert!(!clean.contains("onclick"));
+        assert!(!clean.contains("style="));
+        assert!(!clean.contains("hidden"));
+    }
 }

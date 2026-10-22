@@ -96,7 +96,10 @@ document.addEventListener('DOMContentLoaded', () => {
         throwOnError: false
       });
     } catch (e) {}
-  } else if (window.katex) {
+  }
+
+  // pulldown-cmark emits math spans without delimiters; auto-render does not handle them.
+  if (window.katex) {
     document.querySelectorAll('.math-inline').forEach(el => {
       try { katex.render(el.textContent, el, { displayMode: false, throwOnError: false }); } catch(e){}
     });

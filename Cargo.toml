@@ -7,26 +7,26 @@ edition = "2024"
 force-http = []
 
 [dependencies]
-ammonia = "3"
+ammonia = "4.2.4"
 axum = "0.8.9"
-base64 = "0.22"
+base64 = "0.23.1"
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }
-brotli = "8.0.4"
-bytes = "1"
+brotli = "9.0.0"
+bytes = "1.12.1"
 chrono = "0.4.45"
-flate2 = "1.1.9"
-http-body-util = "0.1"
-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
-pulldown-cmark = "0.13.4"
-rand = "0.10"
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json"] }
+flate2 = "1.1.10"
+http-body-util = "0.1.5"
+jsonwebtoken = { version = "11.1.0", features = ["aws_lc_rs"] }
+pulldown-cmark = "0.13.5"
+rand = "0.10.3"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json"] }
 rpassword = "7.5.4"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-sha2 = "0.11.0"
-tokio = { version = "1.52.3", features = ["full"] }
-toml = "1.1.2"
-tower-http = { version = "0.7.0", features = ["fs", "cors", "trace", "set-header"] }
-tracing = { version = "0.1.44" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tokio = { version = "1.54.1", features = ["full"] }
+toml = "1.1.8"
+tower-http = { version = "0.7.1", features = ["fs", "cors", "trace", "set-header"] }
+tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-zstd = "0.13.3"
+zstd = "0.14.3"
